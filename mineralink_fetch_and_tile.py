@@ -88,21 +88,24 @@ def fetch_features(service_url, state):
 def build_tiles():
     """Run tippecanoe to build vector tiles."""
     cmd = [
-        "tippecanoe",
-        "-Z", str(ZOOM_MIN),
-        "-z", str(ZOOM_MAX),
-        "-e", str(TILES_DIR),
-        "--force",
-        "--drop-densest-as-needed",
-        "--read-parallel",
-        "--coalesce",
-        "--extend-zooms-if-still-dropping",
-        "--name", "MineraLink Wells"
-    ] + [str(p) for p in DATA_DIR.glob("*.geojson")]
+    "tippecanoe",
+    "-o", "minerals.mbtiles",
+    "-zg",
+    "-Z", "4",
+    "-z", "16",
+    "-e", "tiles",
+    "--force",
+    "--drop-densest-as-needed",
+    "--read-parallel",
+    "--coalesce",
+    "--extend-zooms-if-still-dropping",
+    "--layer=MineraLinkWells",  # <--- Important fixed layer name
+    "--no-feature-limit",
+    "--no-tile-size-limit",
+    "data/WV.geojson", "data/OH.geojson"
+]
+subprocess.run(cmd, check=True)
 
-    log("Running tippecanoe to build vector tiles...")
-    subprocess.run(cmd, check=True)
-    log("Tippecanoe finished.")
 
 # -------------------------------------------------------------------
 # Commit and push tiles to gh-pages
