@@ -40,12 +40,14 @@ LOG_FILE = Path("build_log.txt")
 # -------------------------------------------------------------------
 def log(msg):
     """Print and write a timestamped log message."""
-    stamp = datetime.utcnow().strftime("[%Y-%m-%d %H:%M:%S UTC]")
+    stamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S UTC]")
     line = f"{stamp} {msg}"
     print(line)
     LOG_FILE.write_text(LOG_FILE.read_text() + line + "\n" if LOG_FILE.exists() else line + "\n")
 
-
+# -------------------------------------------------------------------
+# Fetch ArcGIS data
+# -------------------------------------------------------------------
 def fetch_features(service_url, state):
     """Fetch all features from a public ArcGIS REST service using pagination."""
     all_features = []
@@ -62,7 +64,8 @@ def fetch_features(service_url, state):
             "resultRecordCount": page_size
         }
         try:
-            r = requests.get(layer_url, params=params, timeout=60)
+            # Disable SSL verification for servers with bad certs (e.g., PA)
+            r = requests.get(layer_url, params=params, timeout=60, verify=False)
             r.raise_for_status()
             data = r.json()
             if "features" not in data or not data["features"]:
@@ -79,13 +82,13 @@ def fetch_features(service_url, state):
     out_file.write_text(json.dumps(geojson))
     return len(all_features)
 
-
+# -------------------------------------------------------------------
+# Build Tippecanoe tiles
+# -------------------------------------------------------------------
 def build_tiles():
     """Run tippecanoe to build vector tiles."""
     cmd = [
         "tippecanoe",
-        "-o", "minerals.mbtiles",
-        "-zg",
         "-Z", str(ZOOM_MIN),
         "-z", str(ZOOM_MAX),
         "-e", str(TILES_DIR),
@@ -93,17 +96,20 @@ def build_tiles():
         "--drop-densest-as-needed",
         "--read-parallel",
         "--coalesce",
-        "--extend-zooms-if-still-dropping"
+        "--extend-zooms-if-still-dropping",
+        "--name", "MineraLink Wells"
     ] + [str(p) for p in DATA_DIR.glob("*.geojson")]
 
     log("Running tippecanoe to build vector tiles...")
     subprocess.run(cmd, check=True)
     log("Tippecanoe finished.")
 
-
+# -------------------------------------------------------------------
+# Commit and push tiles to gh-pages
+# -------------------------------------------------------------------
 def git_commit_and_push():
     """Commit and push tiles to gh-pages branch."""
-    msg = f"Auto-update tiles — {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+    msg = f"Auto-update tiles — {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}"
     subprocess.run(["git", "config", "user.name", "github-actions"], check=True)
     subprocess.run(["git", "config", "user.email", "actions@github.com"], check=True)
     subprocess.run(["git", "checkout", "-B", "gh-pages"], check=True)
@@ -111,7 +117,6 @@ def git_commit_and_push():
     subprocess.run(["git", "commit", "-m", msg], check=True)
     subprocess.run(["git", "push", "-f", "origin", "gh-pages"], check=True)
     log("Tiles committed and pushed to gh-pages branch.")
-
 
 # -------------------------------------------------------------------
 # Main execution
@@ -130,8 +135,13 @@ def main():
         log(f"{state}: total features {count}")
 
     log(f"Total features fetched: {total_features}")
+    if total_features == 0:
+        log("No data fetched; skipping tile build.")
+        return
+
     build_tiles()
     git_commit_and_push()
+
     runtime = round(time.time() - start, 1)
     log(f"✅ Complete in {runtime}s")
 
