@@ -12,6 +12,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # <-- ensures full repo history (needed for branch push)
+          persist-credentials: true # <-- allows pushing using the GitHub token
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,7 +39,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 mineralink_fetch_and_tile.py || true
+          python3 mineralink_fetch_and_tile.py
 
       - name: Upload tiles artifact (for debugging)
         if: always()
