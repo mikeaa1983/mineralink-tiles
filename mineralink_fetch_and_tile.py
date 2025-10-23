@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 MineraLink – Automated Well & Parcel Data Fetcher + Tile Builder
-Author: mikeaa1983 (GitHub)
+Author: mikeaa1983
 Runs in GitHub Actions nightly to update vector tiles for GitHub Pages.
 """
 
@@ -36,19 +36,20 @@ TILES_DIR = Path("tiles")
 LOG_FILE = Path("build_log.txt")
 
 # -------------------------------------------------------------------
-# Utility functions
+# Utilities
 # -------------------------------------------------------------------
-def log(msg):
+def log(msg: str):
     """Print and write a timestamped log message."""
-    stamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S UTC]")
+    stamp = datetime.utcnow().strftime("[%Y-%m-%d %H:%M:%S UTC]")
     line = f"{stamp} {msg}"
     print(line)
-    LOG_FILE.write_text(LOG_FILE.read_text() + line + "\n" if LOG_FILE.exists() else line + "\n")
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
 
 # -------------------------------------------------------------------
 # Fetch ArcGIS data
 # -------------------------------------------------------------------
-def fetch_features(service_url, state):
+def fetch_features(service_url: str, state: str) -> int:
     """Fetch all features from a public ArcGIS REST service using pagination."""
     all_features = []
     result_offset = 0
@@ -64,7 +65,7 @@ def fetch_features(service_url, state):
             "resultRecordCount": page_size
         }
         try:
-            # Disable SSL verification for servers with bad certs (e.g., PA)
+            # Disable SSL verification for flaky certs
             r = requests.get(layer_url, params=params, timeout=60, verify=False)
             r.raise_for_status()
             data = r.json()
@@ -77,25 +78,30 @@ def fetch_features(service_url, state):
             log(f"{state}: ERROR {e}")
             break
 
+    # Save only if valid data
+    if not all_features:
+        log(f"{state}: ❌ No features returned, skipping.")
+        return 0
+
     geojson = {"type": "FeatureCollection", "features": all_features}
     out_file = DATA_DIR / f"{state}.geojson"
-    out_file.write_text(json.dumps(geojson))
+    try:
+        out_file.write_text(json.dumps(geojson))
+        log(f"{state}: ✅ Saved {len(all_features)} features.")
+    except Exception as e:
+        log(f"{state}: ❌ Failed to write file: {e}")
+        return 0
     return len(all_features)
 
 # -------------------------------------------------------------------
 # Build Tippecanoe tiles
 # -------------------------------------------------------------------
 def build_tiles():
-    """Run tippecanoe to build vector tiles."""
-    # Verify input files exist and are non-empty
-    missing = []
-    for state in ["WV", "OH"]:
-        f = DATA_DIR / f"{state}.geojson"
-        if not f.exists() or f.stat().st_size < 500:
-            missing.append(state)
-    if missing:
-        log(f"❌ Missing or empty GeoJSON files: {', '.join(missing)} — skipping tile build.")
-        return
+    """Run Tippecanoe to build vector tiles."""
+    files = [f for f in DATA_DIR.glob("*.geojson") if f.stat().st_size > 500]
+    if not files:
+        log("❌ No valid GeoJSON files found — skipping tile build.")
+        return False
 
     cmd = [
         "tippecanoe",
@@ -111,35 +117,32 @@ def build_tiles():
         "--no-feature-limit",
         "--no-tile-size-limit",
         "--layer=MineraLinkWells",
-        "--preserve-input-order",
-        "--reorder-features",
-        str(DATA_DIR / "WV.geojson"),
-        str(DATA_DIR / "OH.geojson")
-    ]
+    ] + [str(f) for f in files]
 
     try:
         subprocess.run(cmd, check=True)
         log("✅ Tippecanoe completed successfully.")
+        return True
     except subprocess.CalledProcessError as e:
         log(f"❌ Tippecanoe failed: {e}")
-        return
+        return False
 
 # -------------------------------------------------------------------
-# Commit and push tiles to gh-pages
+# Commit and push tiles
 # -------------------------------------------------------------------
 def git_commit_and_push():
-    """Commit and push tiles to gh-pages branch."""
-    msg = f"Auto-update tiles — {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}"
+    """Commit and push tiles to gh-pages."""
+    msg = f"Auto-update tiles — {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
     subprocess.run(["git", "config", "user.name", "github-actions"], check=True)
     subprocess.run(["git", "config", "user.email", "actions@github.com"], check=True)
     subprocess.run(["git", "checkout", "-B", "gh-pages"], check=True)
     subprocess.run(["git", "add", "tiles"], check=True)
     subprocess.run(["git", "commit", "-m", msg], check=True)
     subprocess.run(["git", "push", "-f", "origin", "gh-pages"], check=True)
-    log("Tiles committed and pushed to gh-pages branch.")
+    log("Tiles committed and pushed to gh-pages.")
 
 # -------------------------------------------------------------------
-# Main execution
+# Main
 # -------------------------------------------------------------------
 def main():
     start = time.time()
@@ -147,20 +150,25 @@ def main():
     TILES_DIR.mkdir(exist_ok=True)
     LOG_FILE.write_text("")
 
-    total_features = 0
+    total = 0
     for state, url in STATES.items():
         log(f"Fetching {state} wells...")
         count = fetch_features(url, state)
-        total_features += count
-        log(f"{state}: total features {count}")
+        total += count
+        log(f"{state}: total {count}")
 
-    log(f"Total features fetched: {total_features}")
-    if total_features == 0:
-        log("No data fetched; skipping tile build.")
+    log(f"Total features fetched: {total}")
+    if total == 0:
+        log("❌ No data fetched. Skipping build and push.")
         return
 
-    build_tiles()
-    git_commit_and_push()
+    if build_tiles():
+        try:
+            git_commit_and_push()
+        except Exception as e:
+            log(f"⚠️ Git push failed: {e}")
+    else:
+        log("⚠️ Tile build failed; skipping push.")
 
     runtime = round(time.time() - start, 1)
     log(f"✅ Complete in {runtime}s")
