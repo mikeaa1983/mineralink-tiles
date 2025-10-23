@@ -1,13 +1,12 @@
 name: Build and publish MineraLink tiles
 
-# Grant Actions permission to push to gh-pages
 permissions:
   contents: write
 
 on:
   schedule:
     - cron: '0 3 * * *'   # Run daily at 3 AM UTC
-  workflow_dispatch:       # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,7 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history needed for gh-pages branch operations
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,6 +36,7 @@ jobs:
           cd tippecanoe
           make -j
           sudo make install
+          cd ..
 
       - name: Run MineraLink data fetch and tile build
         env:
@@ -44,16 +44,26 @@ jobs:
         run: |
           python3 mineralink_fetch_and_tile.py
 
-      - name: Commit and push to gh-pages
+      - name: Commit and push only tiles to gh-pages
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           git fetch origin gh-pages || true
           git checkout gh-pages || git checkout --orphan gh-pages
+
+          # Clean out old tiles
+          rm -rf tiles
           mkdir -p tiles
-          cp -r tiles/* .
-          git add .
-          git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes to commit"
+
+          # Copy new tiles only
+          cp -r ../tiles/* ./tiles/ || true
+
+          # Remove heavy folders and unwanted files
+          rm -rf tippecanoe data .gitmodules || true
+
+          # Add only tiles and index.html
+          git add tiles index.html || true
+          git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
           git push origin gh-pages --force
 
       - name: Upload tiles artifact (optional)
