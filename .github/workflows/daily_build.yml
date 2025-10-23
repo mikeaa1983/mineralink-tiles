@@ -62,10 +62,19 @@ jobs:
           # Remove everything except index.html
           find . -mindepth 1 -maxdepth 1 ! -name 'index.html' -exec rm -rf {} +
 
-          # Copy tiles from main branch workspace into gh-pages
-          cp -r ../mineralink-tiles/tiles ./tiles
+          # Detect correct tiles folder (GitHub sometimes nests repos differently)
+          if [ -d "../tiles" ]; then
+            cp -r ../tiles ./tiles
+          elif [ -d "../mineralink-tiles/tiles" ]; then
+            cp -r ../mineralink-tiles/tiles ./tiles
+          elif [ -d "../mineralink-tiles/mineralink-tiles/tiles" ]; then
+            cp -r ../mineralink-tiles/mineralink-tiles/tiles ./tiles
+          else
+            echo "❌ Tiles directory not found!"
+            exit 1
+          fi
 
-          echo "Tiles copied into gh-pages branch:"
+          echo "✅ Tiles copied into gh-pages branch:"
           ls -R tiles | head -n 20
 
           git add tiles index.html
