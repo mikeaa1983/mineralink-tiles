@@ -87,12 +87,22 @@ def fetch_features(service_url, state):
 # -------------------------------------------------------------------
 def build_tiles():
     """Run tippecanoe to build vector tiles."""
+    # Verify input files exist and are non-empty
+    missing = []
+    for state in ["WV", "OH"]:
+        f = DATA_DIR / f"{state}.geojson"
+        if not f.exists() or f.stat().st_size < 500:
+            missing.append(state)
+    if missing:
+        log(f"❌ Missing or empty GeoJSON files: {', '.join(missing)} — skipping tile build.")
+        return
+
     cmd = [
         "tippecanoe",
         "-zg",
         "-Z", str(ZOOM_MIN),
         "-z", str(ZOOM_MAX),
-        "-e", "tiles",                     # export directory only
+        "-e", "tiles",
         "--force",
         "--drop-densest-as-needed",
         "--read-parallel",
@@ -103,10 +113,16 @@ def build_tiles():
         "--layer=MineraLinkWells",
         "--preserve-input-order",
         "--reorder-features",
-        "data/WV.geojson", "data/OH.geojson"
+        str(DATA_DIR / "WV.geojson"),
+        str(DATA_DIR / "OH.geojson")
     ]
-    subprocess.run(cmd, check=True)
 
+    try:
+        subprocess.run(cmd, check=True)
+        log("✅ Tippecanoe completed successfully.")
+    except subprocess.CalledProcessError as e:
+        log(f"❌ Tippecanoe failed: {e}")
+        return
 
 # -------------------------------------------------------------------
 # Commit and push tiles to gh-pages
