@@ -88,23 +88,25 @@ def fetch_features(service_url, state):
 def build_tiles():
     """Run tippecanoe to build vector tiles."""
     cmd = [
-    "tippecanoe",
-    "-o", "minerals.mbtiles",
-    "-zg",
-    "-Z", "4",
-    "-z", "16",
-    "-e", "tiles",
-    "--force",
-    "--drop-densest-as-needed",
-    "--read-parallel",
-    "--coalesce",
-    "--extend-zooms-if-still-dropping",
-    "--layer=MineraLinkWells",  # <--- Important fixed layer name
-    "--no-feature-limit",
-    "--no-tile-size-limit",
-    "data/WV.geojson", "data/OH.geojson"
-]
-subprocess.run(cmd, check=True)
+        "tippecanoe",
+        "-o", "minerals.mbtiles",
+        "-zg",
+        "-Z", str(ZOOM_MIN),
+        "-z", str(ZOOM_MAX),
+        "-e", "tiles",
+        "--force",
+        "--drop-densest-as-needed",
+        "--read-parallel",
+        "--coalesce",
+        "--extend-zooms-if-still-dropping",
+        "--no-feature-limit",
+        "--no-tile-size-limit",
+        "--layer=MineraLinkWells",
+        "--preserve-input-order",   # keeps the same order every zoom
+        "--reorder-features",       # ensures consistent rendering between tiles
+        "data/WV.geojson", "data/OH.geojson"
+    ]
+    subprocess.run(cmd, check=True)
 
 
 # -------------------------------------------------------------------
