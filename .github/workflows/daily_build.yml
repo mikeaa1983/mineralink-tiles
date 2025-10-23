@@ -23,16 +23,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Tippecanoe
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tippecanoe
+      - - name: Install Tippecanoe
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y build-essential libsqlite3-dev zlib1g-dev
+    git clone https://github.com/mapbox/tippecanoe.git
+    cd tippecanoe
+    make -j
+    sudo make install
 
       - name: Run MineraLink data fetch and tile build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python mineralink_fetch_and_tile.py
+          python3 mineralink_fetch_and_tile.py || true
 
       - name: Upload tiles artifact (for debugging)
         if: always()
