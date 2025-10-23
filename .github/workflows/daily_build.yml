@@ -36,7 +36,6 @@ jobs:
           cd tippecanoe
           make -j
           sudo make install
-          cd ..
 
       - name: Run MineraLink data fetch and tile build
         env:
@@ -46,31 +45,35 @@ jobs:
           python3 mineralink_fetch_and_tile.py
           echo "Tiles generated at:" && ls -R tiles
 
-          # Clean up large GeoJSONs to stay under 100MB GitHub limit
-          if [ -d "data" ]; then
-            echo "Cleaning up raw GeoJSON files..."
-            rm -rf data/*
-          fi
+          # Clean up raw data to stay under 100MB limit
+          rm -rf data/* || true
 
-      - name: Commit and push tiles to gh-pages
+      - name: Publish to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
+          # Save tiles before switching branches
+          mkdir -p /home/runner/tiles_copy
+          cp -r tiles/* /home/runner/tiles_copy/
+
           git fetch origin gh-pages || true
-
-          # Create a temp copy of tiles before switching branches
-          cp -r tiles /tmp/tiles
-
           git checkout gh-pages || git checkout --orphan gh-pages
 
-          # Remove everything except index.html
-          find . -mindepth 1 -maxdepth 1 ! -name 'index.html' -exec rm -rf {} +
+          # Clean branch safely (don't delete .git!)
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name '.git' \
+            ! -name 'index.html' \
+            -exec rm -rf {} +
 
           # Copy tiles back in
-          cp -r /tmp/tiles ./tiles
+          mkdir -p tiles
+          cp -r /home/runner/tiles_copy/* tiles/
 
           echo "✅ Tiles copied into gh-pages branch:"
           ls -R tiles | head -n 20
+
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
 
           git add tiles index.html
           git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes to commit"
