@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MineraLink – Stable Well & Parcel Tile Builder (Fixed Projection)
-Author: mikeaa1983
+MineraLink – Final Fixed Tile Builder
+Correctly reprojects all state well datasets to EPSG:4326 (lat/lon).
 """
 
 import os
@@ -12,24 +12,17 @@ import requests
 from datetime import datetime
 from pathlib import Path
 from shapely.geometry import shape, mapping
-from shapely import ops as shapely_ops
+from shapely.ops import transform as shp_transform
 from pyproj import Transformer
 
 # -------------------------------------------------------------------
-# Reliable sources only
+# Known working ArcGIS endpoints
 # -------------------------------------------------------------------
 STATES = {
-    "WV": "https://tagis.dep.wv.gov/arcgis/rest/services/WVDEP_enterprise/oil_gas/MapServer/0",
-    "OH": "https://gis.ohiodnr.gov/arcgis/rest/services/DOG_Services/Oilgas_Wells_public/MapServer/0",
-    "PA": "https://www.paoilandgasreporting.state.pa.us/arcgis/rest/services/Public/OG_Wells/MapServer/0",
-    "TX": "https://gis.rrc.texas.gov/server/rest/services/Public/Wells/MapServer/0"
-}
-
-KNOWN_CRS = {
-    "WV": "EPSG:3857",
-    "OH": "EPSG:4326",
-    "PA": "EPSG:3857",
-    "TX": "EPSG:3857"
+    "WV": ("https://tagis.dep.wv.gov/arcgis/rest/services/WVDEP_enterprise/oil_gas/MapServer/0", "EPSG:3857"),
+    "OH": ("https://gis.ohiodnr.gov/arcgis/rest/services/DOG_Services/Oilgas_Wells_public/MapServer/0", "EPSG:4326"),
+    "PA": ("https://www.paoilandgasreporting.state.pa.us/arcgis/rest/services/Public/OG_Wells/MapServer/0", "EPSG:3857"),
+    "TX": ("https://gis.rrc.texas.gov/server/rest/services/Public/Wells/MapServer/0", "EPSG:3857")
 }
 
 DATA_DIR = Path("data")
@@ -45,71 +38,58 @@ def log(msg):
         f.write(f"{stamp} {msg}\n")
 
 # -------------------------------------------------------------------
-def reproject_and_fix_coords(features, src_epsg):
-    """Convert coordinates to EPSG:4326 and ensure correct lon/lat order."""
-    transformer = Transformer.from_crs(src_epsg, "EPSG:4326", always_xy=True)
-    fixed = []
-    for f in features:
-        try:
-            geom = shape(f["geometry"])
-            geom2 = shapely_ops.transform(transformer.transform, geom)
-            # Flip if lat/lon inverted
-            coords = mapping(geom2)
-            if coords["type"] == "Point":
-                x, y = coords["coordinates"]
-                if abs(y) > 90 or abs(x) > 180:  # invalid range check
-                    x, y = y, x
-                coords["coordinates"] = [x, y]
-            f["geometry"] = coords
-            fixed.append(f)
-        except Exception as e:
-            continue
-    return fixed
+def fetch_geojson(service_url, src_epsg, state):
+    """Fetch wells from ArcGIS and reproject all to EPSG:4326."""
+    layer_url = f"{service_url}/query"
+    features = []
+    result_offset = 0
+    page_size = 2000
 
-# -------------------------------------------------------------------
-def fetch_geojson(service_url, state):
-    """Fetch and normalize well data."""
-    src_epsg = KNOWN_CRS.get(state, "EPSG:4326")
-    page, size, allf = 0, 2000, []
-    url = f"{service_url}/query"
+    transformer = Transformer.from_crs(src_epsg, "EPSG:4326", always_xy=True)
 
     while True:
         params = {
             "where": "1=1",
             "outFields": "*",
             "f": "geojson",
-            "resultOffset": page * size,
-            "resultRecordCount": size
+            "resultOffset": result_offset,
+            "resultRecordCount": page_size
         }
         try:
-            r = requests.get(url, params=params, timeout=90, verify=False)
+            r = requests.get(layer_url, params=params, timeout=90, verify=False)
             r.raise_for_status()
             js = r.json()
             feats = js.get("features", [])
             if not feats:
                 break
-            allf.extend(feats)
-            log(f"{state}: +{len(feats)} features ({len(allf)} total)")
-            page += 1
+            for f in feats:
+                try:
+                    geom = shape(f["geometry"])
+                    geom4326 = shp_transform(transformer.transform, geom)
+                    f["geometry"] = mapping(geom4326)
+                    features.append(f)
+                except Exception:
+                    continue
+            result_offset += page_size
+            log(f"{state}: fetched {len(feats)} (total {len(features)})")
         except Exception as e:
             log(f"{state}: ERROR {e}")
             break
 
-    if not allf:
-        log(f"{state}: no features fetched")
+    if not features:
+        log(f"{state}: no valid features")
         return 0
 
-    fixed = reproject_and_fix_coords(allf, src_epsg)
-    out = DATA_DIR / f"{state}.geojson"
-    out.write_text(json.dumps({"type": "FeatureCollection", "features": fixed}))
-    log(f"{state}: saved {len(fixed)} corrected features")
-    return len(fixed)
+    out_path = DATA_DIR / f"{state}.geojson"
+    out_path.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+    log(f"{state}: saved {len(features)} reprojected features from {src_epsg}")
+    return len(features)
 
 # -------------------------------------------------------------------
 def build_tiles():
     files = [str(f) for f in DATA_DIR.glob("*.geojson") if f.stat().st_size > 0]
     if not files:
-        log("❌ No valid GeoJSON files.")
+        log("❌ No valid GeoJSON files to build.")
         return False
 
     cmd = [
@@ -130,7 +110,7 @@ def build_tiles():
 
     try:
         subprocess.run(cmd, check=True)
-        log("✅ Tippecanoe built clean tiles.")
+        log("✅ Tippecanoe built proper WGS84 tiles.")
         return True
     except subprocess.CalledProcessError as e:
         log(f"❌ Tippecanoe failed: {e}")
@@ -149,7 +129,7 @@ def git_push():
         "https://x-access-token:${GITHUB_TOKEN}@github.com/mikeaa1983/mineralink-tiles.git",
         "gh-pages"
     ], shell=True, check=False)
-    log("✅ Tiles pushed to gh-pages.")
+    log("✅ Tiles pushed to gh-pages branch.")
 
 # -------------------------------------------------------------------
 def main():
@@ -159,18 +139,18 @@ def main():
     if LOG_FILE.exists(): LOG_FILE.unlink()
 
     total = 0
-    for s, u in STATES.items():
-        log(f"Fetching {s} wells...")
-        total += fetch_geojson(u, s)
+    for state, (url, epsg) in STATES.items():
+        log(f"Fetching {state} wells...")
+        total += fetch_geojson(url, epsg, state)
 
     if total == 0:
-        log("❌ No data fetched.")
+        log("❌ No data fetched; exiting.")
         return
 
     if build_tiles():
         git_push()
 
-    log(f"✅ Done in {round(time.time()-start,1)}s")
+    log(f"✅ Complete in {round(time.time()-start,1)}s")
 
 if __name__ == "__main__":
     main()
