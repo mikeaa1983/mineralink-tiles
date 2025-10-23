@@ -89,11 +89,10 @@ def build_tiles():
     """Run tippecanoe to build vector tiles."""
     cmd = [
         "tippecanoe",
-        "-o", "minerals.mbtiles",
         "-zg",
         "-Z", str(ZOOM_MIN),
         "-z", str(ZOOM_MAX),
-        "-e", "tiles",
+        "-e", "tiles",                     # export directory only
         "--force",
         "--drop-densest-as-needed",
         "--read-parallel",
@@ -102,8 +101,8 @@ def build_tiles():
         "--no-feature-limit",
         "--no-tile-size-limit",
         "--layer=MineraLinkWells",
-        "--preserve-input-order",   # keeps the same order every zoom
-        "--reorder-features",       # ensures consistent rendering between tiles
+        "--preserve-input-order",
+        "--reorder-features",
         "data/WV.geojson", "data/OH.geojson"
     ]
     subprocess.run(cmd, check=True)
