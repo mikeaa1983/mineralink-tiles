@@ -12,6 +12,9 @@ import subprocess
 import requests
 from datetime import datetime
 from pathlib import Path
+from shapely.geometry import shape, mapping
+from shapely import ops as shapely_ops
+from pyproj import Transformer
 
 # -------------------------------------------------------------------
 # Configuration
@@ -36,7 +39,7 @@ TILES_DIR = Path("tiles")
 LOG_FILE = Path("build_log.txt")
 
 # -------------------------------------------------------------------
-# Utilities
+# Utility
 # -------------------------------------------------------------------
 def log(msg: str):
     """Print and write a timestamped log message."""
@@ -45,6 +48,23 @@ def log(msg: str):
     print(line)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(line + "\n")
+
+# -------------------------------------------------------------------
+# Reproject helper
+# -------------------------------------------------------------------
+def reproject_geojson(features, src_epsg="EPSG:3857", dst_epsg="EPSG:4326"):
+    """Convert feature coordinates to WGS84 lat/lon."""
+    transformer = Transformer.from_crs(src_epsg, dst_epsg, always_xy=True)
+    new_features = []
+    for f in features:
+        try:
+            geom = shape(f["geometry"])
+            xformed = shapely_ops.transform(transformer.transform, geom)
+            f["geometry"] = mapping(xformed)
+            new_features.append(f)
+        except Exception:
+            continue
+    return new_features
 
 # -------------------------------------------------------------------
 # Fetch ArcGIS data
@@ -65,7 +85,6 @@ def fetch_features(service_url: str, state: str) -> int:
             "resultRecordCount": page_size
         }
         try:
-            # Disable SSL verification for flaky certs
             r = requests.get(layer_url, params=params, timeout=60, verify=False)
             r.raise_for_status()
             data = r.json()
@@ -78,16 +97,18 @@ def fetch_features(service_url: str, state: str) -> int:
             log(f"{state}: ERROR {e}")
             break
 
-    # Save only if valid data
     if not all_features:
         log(f"{state}: ❌ No features returned, skipping.")
         return 0
+
+    # Reproject to WGS84
+    all_features = reproject_geojson(all_features)
 
     geojson = {"type": "FeatureCollection", "features": all_features}
     out_file = DATA_DIR / f"{state}.geojson"
     try:
         out_file.write_text(json.dumps(geojson))
-        log(f"{state}: ✅ Saved {len(all_features)} features.")
+        log(f"{state}: ✅ Saved {len(all_features)} features to {out_file}")
     except Exception as e:
         log(f"{state}: ❌ Failed to write file: {e}")
         return 0
