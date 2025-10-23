@@ -42,31 +42,32 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          mkdir -p data tiles
           python3 mineralink_fetch_and_tile.py
+          echo "Tiles generated at:" && ls -R tiles
 
-      - name: Commit and push only tiles to gh-pages
+      - name: Commit and push tiles to gh-pages
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           git fetch origin gh-pages || true
           git checkout gh-pages || git checkout --orphan gh-pages
 
-          # Clean out old tiles
-          rm -rf tiles
-          mkdir -p tiles
+          # Remove everything except index.html and tiles
+          find . -mindepth 1 -maxdepth 1 ! -name 'index.html' ! -name 'tiles' -exec rm -rf {} +
 
-          # Copy new tiles only
-          cp -r ../tiles/* ./tiles/ || true
+          # Copy tiles from the same working directory (no ../)
+          cp -r tiles ./tiles
 
-          # Remove heavy folders and unwanted files
-          rm -rf tippecanoe data .gitmodules || true
+          # Confirm tiles exist before commit
+          echo "Tiles in working dir:" && ls -R tiles
 
-          # Add only tiles and index.html
+          # Commit and push
           git add tiles index.html || true
-          git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
+          git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes to commit"
           git push origin gh-pages --force
 
-      - name: Upload tiles artifact (optional)
+      - name: Upload tiles artifact (for debugging)
         if: always()
         uses: actions/upload-artifact@v4
         with:
