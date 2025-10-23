@@ -46,6 +46,12 @@ jobs:
           python3 mineralink_fetch_and_tile.py
           echo "Tiles generated at:" && ls -R tiles
 
+          # Clean up large GeoJSONs to avoid 100 MB repo limit
+          if [ -d "data" ]; then
+            echo "Cleaning up raw GeoJSON files..."
+            rm -rf data/*
+          fi
+
       - name: Commit and push tiles to gh-pages
         run: |
           git config --global user.name "github-actions"
@@ -53,17 +59,16 @@ jobs:
           git fetch origin gh-pages || true
           git checkout gh-pages || git checkout --orphan gh-pages
 
-          # Remove everything except index.html and tiles
-          find . -mindepth 1 -maxdepth 1 ! -name 'index.html' ! -name 'tiles' -exec rm -rf {} +
+          # Remove everything except index.html
+          find . -mindepth 1 -maxdepth 1 ! -name 'index.html' -exec rm -rf {} +
 
-          # Copy tiles from the same working directory (no ../)
-          cp -r tiles ./tiles
+          # Copy tiles from main branch workspace into gh-pages
+          cp -r ../mineralink-tiles/tiles ./tiles
 
-          # Confirm tiles exist before commit
-          echo "Tiles in working dir:" && ls -R tiles
+          echo "Tiles copied into gh-pages branch:"
+          ls -R tiles | head -n 20
 
-          # Commit and push
-          git add tiles index.html || true
+          git add tiles index.html
           git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes to commit"
           git push origin gh-pages --force
 
