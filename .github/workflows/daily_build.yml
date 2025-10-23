@@ -46,7 +46,7 @@ jobs:
           python3 mineralink_fetch_and_tile.py
           echo "Tiles generated at:" && ls -R tiles
 
-          # Clean up large GeoJSONs to avoid 100 MB repo limit
+          # Clean up large GeoJSONs to stay under 100MB GitHub limit
           if [ -d "data" ]; then
             echo "Cleaning up raw GeoJSON files..."
             rm -rf data/*
@@ -57,22 +57,17 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           git fetch origin gh-pages || true
+
+          # Create a temp copy of tiles before switching branches
+          cp -r tiles /tmp/tiles
+
           git checkout gh-pages || git checkout --orphan gh-pages
 
           # Remove everything except index.html
           find . -mindepth 1 -maxdepth 1 ! -name 'index.html' -exec rm -rf {} +
 
-          # Detect correct tiles folder (GitHub sometimes nests repos differently)
-          if [ -d "../tiles" ]; then
-            cp -r ../tiles ./tiles
-          elif [ -d "../mineralink-tiles/tiles" ]; then
-            cp -r ../mineralink-tiles/tiles ./tiles
-          elif [ -d "../mineralink-tiles/mineralink-tiles/tiles" ]; then
-            cp -r ../mineralink-tiles/mineralink-tiles/tiles ./tiles
-          else
-            echo "❌ Tiles directory not found!"
-            exit 1
-          fi
+          # Copy tiles back in
+          cp -r /tmp/tiles ./tiles
 
           echo "✅ Tiles copied into gh-pages branch:"
           ls -R tiles | head -n 20
