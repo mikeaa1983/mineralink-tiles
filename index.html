@@ -2,66 +2,115 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Mineralink Multi-State Map</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MineraLink Map – WV Wells & Parcels</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js"></script>
   <style>
-    html, body, #map { height: 100%; margin: 0; padding: 0; }
-    .info-popup { font-family: system-ui, sans-serif; font-size: 13px; line-height: 1.3em; }
-    .info-popup strong { color: #003366; }
+    html, body, #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+    .leaflet-control-layers-expanded {
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
-  <div id="map"></div>
-  <script>
-    const map = L.map("map").setView([38.5, -96], 6);
-    const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "© OpenStreetMap contributors"
-    }).addTo(map);
 
-    function vectorLayer(path, name, style, displayFields = []) {
-      const layer = L.vectorGrid.protobuf(path, {
-        vectorTileLayerStyles: { [name]: style },
-        maxNativeZoom: 14,
-        maxZoom: 18,
-        interactive: true
-      });
+<div id="map"></div>
 
-      layer.on("click", (e) => {
-        const props = e.layer.properties || {};
-        let html = `<div class="info-popup"><strong>${name}</strong><br/>`;
-        if (displayFields.length === 0) {
-          for (const [key, val] of Object.entries(props).slice(0, 6))
-            html += `<b>${key}</b>: ${val}<br/>`;
-        } else {
-          displayFields.forEach(field => { if (props[field]) html += `<b>${field}</b>: ${props[field]}<br/>`; });
-        }
-        html += "</div>";
-        L.popup({ maxWidth: 300 }).setLatLng(e.latlng).setContent(html).openOn(map);
-      });
+<script>
+  // --- Base Maps ---
+  const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "© OpenStreetMap contributors"
+  });
 
-      return layer;
+  const esriSat = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { attribution: "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics" }
+  );
+
+  const esriLabels = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    { attribution: "Labels © Esri" }
+  );
+
+  const hybrid = L.layerGroup([esriSat, esriLabels]);
+
+  // --- Initialize Map ---
+  const map = L.map("map", {
+    center: [39.036252, -79.947510], // WV center
+    zoom: 10,
+    layers: [hybrid]
+  });
+
+  // --- Vector Tile Layers ---
+  const WV_wells = L.vectorGrid.protobuf("tiles/WV_wells/{z}/{x}/{y}.pbf", {
+    vectorTileLayerStyles: {
+      WV_wells: {
+        color: "#ff6600",
+        weight: 1,
+        fill: true,
+        fillColor: "#ff6600",
+        fillOpacity: 0.5
+      }
+    },
+    interactive: true,
+    maxNativeZoom: 14,
+    maxZoom: 19
+  });
+
+  const WV_parcels = L.vectorGrid.protobuf("tiles/WV_parcels/{z}/{x}/{y}.pbf", {
+    vectorTileLayerStyles: {
+      WV_parcels: {
+        color: "#33cc33",
+        weight: 0.5,
+        fill: true,
+        fillColor: "#33cc33",
+        fillOpacity: 0.3
+      }
+    },
+    interactive: true,
+    maxNativeZoom: 14,
+    maxZoom: 19
+  });
+
+  // --- Popup on Click ---
+  function onFeatureClick(e) {
+    const props = e.layer.properties || {};
+    let popupContent = "<b>Feature Info:</b><br>";
+    for (const key in props) {
+      popupContent += `<b>${key}</b>: ${props[key]}<br>`;
     }
+    L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
+  }
 
-    const baseUrl = "https://mikeaa1983.github.io/mineralink-tiles/tiles";
+  WV_wells.on("click", onFeatureClick);
+  WV_parcels.on("click", onFeatureClick);
 
-    const overlays = {
-      "WV Wells": vectorLayer(`${baseUrl}/WV_wells/{z}/{x}/{y}.pbf`, "WV_wells", { radius:3, fillColor:"#00aaff", color:"#003366", weight:0.3, fillOpacity:0.9 }, ["WELL_NAME","OPERATOR","API"]),
-      "WV Parcels": vectorLayer(`${baseUrl}/WV_parcels/{z}/{x}/{y}.pbf`, "WV_parcels", { color:"#cc33ff", weight:1, fillOpacity:0.2 }, ["PARCEL_ID","OWNER","COUNTY"]),
-      "OH Wells": vectorLayer(`${baseUrl}/OH_wells/{z}/{x}/{y}.pbf`, "OH_wells", { radius:3, fillColor:"#009933", color:"#004d1a", weight:0.3, fillOpacity:0.8 }, ["WELL_NAME","OPERATOR","API"]),
-      "OH Parcels": vectorLayer(`${baseUrl}/OH_parcels/{z}/{x}/{y}.pbf`, "OH_parcels", { color:"#66ff99", weight:1, fillOpacity:0.3 }, ["PARCEL_ID","OWNER","COUNTY"]),
-      "PA Wells": vectorLayer(`${baseUrl}/PA_wells/{z}/{x}/{y}.pbf`, "PA_wells", { radius:3, fillColor:"#ff6600", color:"#663300", weight:0.4, fillOpacity:0.8 }, ["WELL_NAME","OPERATOR","API"]),
-      "PA Laterals": vectorLayer(`${baseUrl}/PA_laterals/{z}/{x}/{y}.pbf`, "PA_laterals", { color:"#9933ff", weight:1.2, fillOpacity:0.3 }, ["LATERAL_ID","OPERATOR"]),
-      "PA Parcels": vectorLayer(`${baseUrl}/PA_parcels/{z}/{x}/{y}.pbf`, "PA_parcels", { color:"#00ffff", weight:1, fillOpacity:0.3 }, ["PARCEL_ID","OWNER","COUNTY"]),
-      "TX Wells": vectorLayer(`${baseUrl}/TX_wells/{z}/{x}/{y}.pbf`, "TX_wells", { radius:3, fillColor:"#00ff00", color:"#006600", weight:0.4, fillOpacity:0.8 }, ["WELL_NAME","OPERATOR","API"]),
-      "TX Parcels": vectorLayer(`${baseUrl}/TX_parcels/{z}/{x}/{y}.pbf`, "TX_parcels", { color:"#0099ff", weight:1, fillOpacity:0.25 }, ["PARCEL_ID","OWNER","COUNTY"])
-    };
+  // --- Layer Control ---
+  const baseLayers = {
+    "Satellite + Labels": hybrid,
+    "OpenStreetMap": osm
+  };
 
-    L.control.layers({ "OpenStreetMap": osm }, overlays, { collapsed: false }).addTo(map);
-    overlays["WV Wells"].addTo(map);
-  </script>
+  const overlays = {
+    "WV Wells": WV_wells,
+    "WV Parcels": WV_parcels
+  };
+
+  L.control.layers(baseLayers, overlays, { collapsed: false }).addTo(map);
+
+  // --- Add default overlays ---
+  WV_parcels.addTo(map);
+  WV_wells.addTo(map);
+</script>
+
 </body>
 </html>
