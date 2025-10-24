@@ -1,6 +1,6 @@
 requests
 shapely
 pyproj
-geopandas
 fiona
 pandas
+geopandas
