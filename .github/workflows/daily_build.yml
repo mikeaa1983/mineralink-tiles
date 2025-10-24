@@ -2,7 +2,7 @@ name: Daily Build and Deploy Tiles
 
 on:
   schedule:
-    - cron: "0 2 * * *"  # every day at 2 AM UTC
+    - cron: "0 2 * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -27,10 +27,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install geopandas shapely requests fiona pyproj pandas
 
-      - name: Build tiles
+      - name: Build vector tiles
         run: |
           python mineralink_fetch_and_tile.py
-          echo "Tiles preview:"
+          echo "Tiles generated:"
           ls -R tiles | head -50
 
       - name: Archive tiles
@@ -38,7 +38,7 @@ jobs:
           tar -czf /tmp/tiles.tar.gz tiles
           ls -lh /tmp/tiles.tar.gz
 
-      - name: Deploy to gh-pages
+      - name: Switch to gh-pages branch and deploy
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
