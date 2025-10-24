@@ -2,14 +2,15 @@ name: Daily Build and Deploy Tiles
 
 on:
   schedule:
-    - cron: "0 2 * * *"  # Run daily at 2 AM UTC
+    - cron: "0 2 * * *"  # every day at 2 AM UTC
   workflow_dispatch:
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -26,31 +27,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install geopandas shapely requests fiona pyproj pandas
 
-      - name: Build vector tiles
+      - name: Build tiles
         run: |
           python mineralink_fetch_and_tile.py
+          echo "Tiles preview:"
           ls -R tiles | head -50
 
       - name: Archive tiles
-        run: tar -czf tiles.tar.gz tiles
+        run: |
+          tar -czf /tmp/tiles.tar.gz tiles
+          ls -lh /tmp/tiles.tar.gz
 
-      - name: Switch to gh-pages and unpack tiles
+      - name: Deploy to gh-pages
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
+
           if git show-ref --verify --quiet refs/heads/gh-pages; then
             git checkout gh-pages
           else
             git checkout --orphan gh-pages
             git rm -rf .
           fi
+
           rm -rf tiles
-          tar -xzf ../tiles.tar.gz
-          echo "Tiles after extract:"
+          tar -xzf /tmp/tiles.tar.gz
+          echo "Extracted tiles:"
           ls -R tiles | head -50
 
-      - name: Commit and push
-        run: |
           git add tiles
           git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
           git push origin gh-pages --force
