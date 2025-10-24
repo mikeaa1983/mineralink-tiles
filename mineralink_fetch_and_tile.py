@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # mineralink_fetch_and_tile.py
-# Fetches ArcGIS layers, reprojects to EPSG:4326, and builds vector tiles with Tippecanoe.
+# Fetches ArcGIS REST layers, reprojects to EPSG:4326, and builds Tippecanoe vector tiles.
 
 import os
 import json
@@ -8,13 +8,11 @@ import shutil
 import subprocess
 import requests
 import geopandas as gpd
-import pandas as pd
 from pathlib import Path
 
-# -----------------------------
+# ------------------------------------------------------------
 # CONFIG
-# -----------------------------
-
+# ------------------------------------------------------------
 DATASETS = [
     # --- WEST VIRGINIA ---
     {"name": "WV_wells", "url": "https://tagis.dep.wv.gov/arcgis/rest/services/WVDEP_enterprise/oil_gas/MapServer/1/query"},
@@ -40,20 +38,67 @@ TIPPECANOE_CMD = "tippecanoe"
 TIPPECANOE_MINZOOM = 4
 TIPPECANOE_MAXZOOM = 14
 
-# -----------------------------
+# ------------------------------------------------------------
 # FUNCTIONS
-# -----------------------------
+# ------------------------------------------------------------
 
 def fetch_geojson(dataset):
-    """Fetch a dataset as GeoJSON."""
+    """Fetch a dataset as GeoJSON, with chunked logic for large layers like TX parcels."""
     name, url = dataset["name"], dataset["url"]
     print(f"\n=== Fetching {name} ===")
+
     params = {
         "where": "1=1",
         "outFields": "*",
         "f": "geojson",
         "outSR": "4326",
     }
+
+    # Handle massive Texas parcels in smaller geographic chunks
+    if name == "TX_parcels":
+        # Roughly divides Texas into 10 bounding boxes (WGS84)
+        bboxes = [
+            (-106.7, 36.5, -104.5, 34.5),
+            (-104.5, 36.5, -102.5, 34.5),
+            (-102.5, 36.5, -100.5, 34.5),
+            (-100.5, 36.5, -98.5, 34.5),
+            (-98.5, 36.5, -96.5, 34.5),
+            (-96.5, 36.5, -94.0, 34.5),
+            (-106.7, 34.5, -104.5, 32.0),
+            (-104.5, 34.5, -101.0, 32.0),
+            (-101.0, 34.5, -97.5, 32.0),
+            (-97.5, 34.5, -94.0, 32.0),
+        ]
+        features = []
+        for i, (xmin, ymax, xmax, ymin) in enumerate(bboxes, start=1):
+            print(f"  ▸ Chunk {i}/{len(bboxes)}: bbox {xmin},{ymin},{xmax},{ymax}")
+            bbox_params = params.copy()
+            bbox_params.update({
+                "geometry": f"{xmin},{ymin},{xmax},{ymax}",
+                "geometryType": "esriGeometryEnvelope",
+                "spatialRel": "esriSpatialRelIntersects"
+            })
+            try:
+                resp = requests.get(url, params=bbox_params, timeout=180)
+                resp.raise_for_status()
+                chunk = resp.json()
+                feats = chunk.get("features", [])
+                if feats:
+                    features.extend(feats)
+                    print(f"    + {len(feats)} features")
+                else:
+                    print(f"    (no features)")
+            except Exception as e:
+                print(f"⚠️  Chunk {i} failed: {e}")
+
+        geo = {"type": "FeatureCollection", "features": features}
+        file_name = f"{name}.geojson"
+        with open(file_name, "w", encoding="utf-8") as f:
+            json.dump(geo, f)
+        print(f"✅ Combined {len(features)} features into {file_name}")
+        return file_name
+
+    # Default single-request fetch
     try:
         resp = requests.get(url, params=params, timeout=180)
         resp.raise_for_status()
@@ -69,7 +114,7 @@ def fetch_geojson(dataset):
 
 
 def reproject_to_4326(input_file):
-    """Force reprojection to EPSG:4326."""
+    """Ensure reprojection to EPSG:4326."""
     if not input_file or not os.path.exists(input_file):
         return None
     print(f"Reprojecting {input_file} → EPSG:4326")
@@ -86,7 +131,7 @@ def reproject_to_4326(input_file):
 
 
 def build_tiles(name, geojson_file):
-    """Run Tippecanoe to create vector tiles for a layer."""
+    """Run Tippecanoe to create vector tiles."""
     if not geojson_file or not os.path.exists(geojson_file):
         return
     out_dir = OUT_TILES_DIR / name
@@ -116,11 +161,11 @@ def main():
         src = fetch_geojson(ds)
         reproj = reproject_to_4326(src)
         build_tiles(ds["name"], reproj)
-        if src: os.remove(src)
-        if reproj: os.remove(reproj)
+        if src and os.path.exists(src): os.remove(src)
+        if reproj and os.path.exists(reproj): os.remove(reproj)
 
     print("\n🎉 All layers processed successfully! Tiles ready in /tiles/")
-    
+
 
 if __name__ == "__main__":
     main()
