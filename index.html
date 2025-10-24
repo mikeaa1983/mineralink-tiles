@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MineraLink – Wells & Parcels Map</title>
+<title>MineraLink – Auto Layer Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js"></script>
@@ -16,77 +16,101 @@
 <div id="map"></div>
 
 <script>
-// ---------- Base maps ----------
-const osm = L.tileLayer(
-  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-  {maxZoom:19,attribution:"© OpenStreetMap contributors"}
-);
+const map = L.map("map", {
+  center: [39.0, -80.0],
+  zoom: 7
+});
+
+// --- Base layers ---
+const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: "© OpenStreetMap contributors"
+});
 const esriSat = L.tileLayer(
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  {attribution:"Tiles © Esri — Sources: Esri, Maxar, Earthstar Geographics"}
+  { attribution: "Tiles © Esri — Sources: Esri, Maxar, Earthstar Geographics" }
 );
 const esriLabels = L.tileLayer(
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-  {attribution:"Labels © Esri"}
+  { attribution: "Labels © Esri" }
 );
-const hybrid = L.layerGroup([esriSat,esriLabels]);
+const hybrid = L.layerGroup([esriSat, esriLabels]);
+hybrid.addTo(map);
 
-// ---------- Map init ----------
-const map = L.map("map",{
-  center:[39.0,-80.0],
-  zoom:7,
-  layers:[hybrid]
-});
+// --- Define folders ---
+const tileFolders = [
+  "WV_wells",
+  "WV_parcels",
+  "PA_wells",
+  "PA_parcels",
+  "PA_laterals",
+  "OH_parcels"
+];
 
-// ---------- Helper ----------
-function makeVectorLayer(path,id,color,fillColor,fillOpacity=0.4,weight=0.8){
-  const layer=L.vectorGrid.protobuf(path,{
-    vectorTileLayerStyles:{
-      [id]:{color,weight,fill:true,fillColor,fillOpacity}
-    },
-    interactive:true,
-    maxNativeZoom:14,
-    maxZoom:19
-  });
-  layer.on("click",e=>{
-    const props=e.layer.properties||{};
-    let html="<b>"+id+"</b><br>";
-    for(const k in props)html+=`<b>${k}</b>: ${props[k]}<br>`;
-    L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
-  });
-  return layer;
+// --- Color palette for auto styling ---
+const colors = {
+  WV_wells: "#ff6600",
+  WV_parcels: "#33cc33",
+  PA_wells: "#ffcc00",
+  PA_parcels: "#00ffff",
+  PA_laterals: "#9900ff",
+  OH_parcels: "#ff0099"
+};
+
+// --- Function to build each layer automatically ---
+async function loadVectorLayer(folder) {
+  try {
+    const response = await fetch(`tiles/${folder}/metadata.json`);
+    const metadata = await response.json();
+    const id = metadata.vector_layers[0].id; // auto-detect id
+    const color = colors[folder] || "#3388ff";
+
+    const layer = L.vectorGrid.protobuf(`tiles/${folder}/{z}/{x}/{y}.pbf`, {
+      vectorTileLayerStyles: {
+        [id]: {
+          color: color,
+          weight: 1,
+          fill: true,
+          fillColor: color,
+          fillOpacity: 0.4
+        }
+      },
+      interactive: true,
+      maxNativeZoom: 14,
+      maxZoom: 19
+    });
+
+    layer.on("click", e => {
+      const props = e.layer.properties || {};
+      let html = `<b>${folder}</b><br>`;
+      for (const key in props) html += `<b>${key}</b>: ${props[key]}<br>`;
+      L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
+    });
+
+    return [folder, layer];
+  } catch (err) {
+    console.warn(`Could not load ${folder}:`, err);
+    return null;
+  }
 }
 
-// ---------- WV ----------
-const WV_wells   = makeVectorLayer("tiles/WV_wells/{z}/{x}/{y}.pbf","WV_wells","#ff6600","#ff6600",0.5,1);
-const WV_parcels = makeVectorLayer("tiles/WV_parcels/{z}/{x}/{y}.pbf","WV_parcels","#33cc33","#33cc33",0.3,0.5);
-
-// ---------- PA ----------
-const PA_wells   = makeVectorLayer("tiles/PA_wells/{z}/{x}/{y}.pbf","PA_wells","#ffcc00","#ffcc00",0.5,1);
-const PA_parcels = makeVectorLayer("tiles/PA_parcels/{z}/{x}/{y}.pbf","PA_parcels","#00ffff","#00ffff",0.3,0.5);
-const PA_laterals= makeVectorLayer("tiles/PA_laterals/{z}/{x}/{y}.pbf","PA_laterals","#9900ff","#9900ff",0.5,1);
-
-// ---------- OH ----------
-const OH_parcels = makeVectorLayer("tiles/OH_parcels/{z}/{x}/{y}.pbf","OH_parcels","#ff0099","#ff0099",0.3,0.5);
-
-// ---------- Layer control ----------
-const baseLayers={
-  "Satellite + Labels":hybrid,
-  "OpenStreetMap":osm
-};
-const overlays={
-  "WV Wells":WV_wells,
-  "WV Parcels":WV_parcels,
-  "PA Wells":PA_wells,
-  "PA Parcels":PA_parcels,
-  "PA Laterals":PA_laterals,
-  "OH Parcels":OH_parcels
-};
-L.control.layers(baseLayers,overlays,{collapsed:false}).addTo(map);
-
-// ---------- Default on ----------
-WV_parcels.addTo(map);
-WV_wells.addTo(map);
+// --- Build and add layer control ---
+(async function init() {
+  const overlayLayers = {};
+  for (const f of tileFolders) {
+    const result = await loadVectorLayer(f);
+    if (result) {
+      const [name, layer] = result;
+      overlayLayers[name] = layer;
+      if (name.startsWith("WV_")) layer.addTo(map); // turn on WV by default
+    }
+  }
+  L.control.layers(
+    { "Satellite + Labels": hybrid, "OpenStreetMap": osm },
+    overlayLayers,
+    { collapsed: false }
+  ).addTo(map);
+})();
 </script>
 </body>
 </html>
