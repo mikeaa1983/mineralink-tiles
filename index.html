@@ -2,77 +2,65 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>MineraLink GIS Viewer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mineralink Vector Tiles</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha512-sA+gLdAxtf0jqN7AOlWz7Gp1Nw1DwEJ4IfK6LxYQ3pnScCgSyO8vMDbGi50AGYJ5sY1A0TV4a0WqMY6FZ5P4pQ=="
-    crossorigin=""
   />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js"></script>
+
   <style>
-    html, body { height: 100%; margin: 0; }
-    #map { height: 100%; }
-    .leaflet-popup-content { max-height: 200px; overflow-y: auto; }
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
+  <script>
+    // Base map
+    const map = L.map('map').setView([39.0, -80.0], 7);
 
- <script>
-  const map = L.map('map').setView([39.5, -81.5], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+    // Vector tile layer from GitHub Pages
+    const vectorUrl =
+      "https://mikeaa1983.github.io/mineralink-tiles/tiles/{z}/{x}/{y}.pbf";
 
-  // URL for vector tiles
-  const tilesURL = 'https://mikeaa1983.github.io/mineralink-tiles/tiles/{z}/{x}/{y}.pbf';
-  const metadataURL = 'https://mikeaa1983.github.io/mineralink-tiles/tiles/metadata.json';
-
-  // Detect correct layer name automatically
-  fetch(metadataURL)
-    .then(r => r.json())
-    .then(meta => {
-      if (!meta.vector_layers || !meta.vector_layers.length) throw new Error('No vector layers found');
-      const layerName = meta.vector_layers[0].id;
-      console.log('Detected layer:', layerName);
-
-      const vectorLayer = L.vectorGrid.protobuf(tilesURL, {
-        vectorTileLayerStyles: {
-          [layerName]: function (properties, zoom) {
-            return {
-              weight: 1,
-              color: '#ff4d4d',
-              fillColor: '#ff4d4d',
-              fill: true,
-              fillOpacity: 0.7,
-              radius: 3
-            };
-          }
+    const wellsLayer = L.vectorGrid.protobuf(vectorUrl, {
+      vectorTileLayerStyles: {
+        wells: {
+          radius: 3,
+          fillColor: "#ff7800",
+          color: "#000",
+          weight: 0.5,
+          fillOpacity: 0.8,
         },
-        interactive: true,
-        maxZoom: 16,
-        minZoom: 4
-      }).on('click', function (e) {
-        const props = e.layer.properties;
-        let info = '';
-        for (const k in props) {
-          info += `<b>${k}:</b> ${props[k]}<br>`;
-        }
-        L.popup({ maxWidth: 300 })
-          .setLatLng(e.latlng)
-          .setContent(info || 'No data available.')
-          .openOn(map);
-      });
+      },
+      interactive: true,
+      maxNativeZoom: 14,
+      maxZoom: 18,
+    }).addTo(map);
 
-      map.addLayer(vectorLayer);
-    })
-    .catch(err => console.error('Error loading vector tiles:', err));
-</script>
+    wellsLayer.on('click', function (e) {
+      const props = e.layer.properties;
+      L.popup()
+        .setLatLng(e.latlng)
+        .setContent(
+          `<b>Well:</b> ${props.WELL_NAME || 'Unknown'}<br/>
+           <b>Operator:</b> ${props.OPERATOR || 'N/A'}`
+        )
+        .openOn(map);
+    });
+  </script>
 </body>
 </html>
