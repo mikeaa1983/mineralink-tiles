@@ -3,41 +3,45 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MineraLink – Auto Layer Map</title>
+<title>MineraLink – Wells & Parcels Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js"></script>
 <style>
   html,body,#map{height:100%;margin:0;padding:0}
   .leaflet-control-layers-expanded{font-size:14px}
+  .popup-table{border-collapse:collapse;width:100%;font-size:13px}
+  .popup-table td{border-bottom:1px solid #ddd;padding:2px 4px;vertical-align:top}
+  .popup-table tr:last-child td{border-bottom:none}
+  .popup-header{font-weight:bold;margin-bottom:5px;text-transform:capitalize}
 </style>
 </head>
 <body>
 <div id="map"></div>
 
 <script>
-const map = L.map("map", {
-  center: [39.0, -80.0],
-  zoom: 7
-});
-
-// --- Base layers ---
-const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: "© OpenStreetMap contributors"
-});
+// --- Initialize map with Esri hybrid base ---
 const esriSat = L.tileLayer(
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  { attribution: "Tiles © Esri — Sources: Esri, Maxar, Earthstar Geographics" }
+  { attribution: "Tiles © Esri, Maxar, Earthstar Geographics" }
 );
 const esriLabels = L.tileLayer(
   "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
   { attribution: "Labels © Esri" }
 );
 const hybrid = L.layerGroup([esriSat, esriLabels]);
-hybrid.addTo(map);
 
-// --- Define folders ---
+const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap contributors"
+});
+
+const map = L.map("map", {
+  center: [39.0, -80.0],
+  zoom: 7,
+  layers: [hybrid]
+});
+
+// --- Layer folders and colors ---
 const tileFolders = [
   "WV_wells",
   "WV_parcels",
@@ -47,7 +51,6 @@ const tileFolders = [
   "OH_parcels"
 ];
 
-// --- Color palette for auto styling ---
 const colors = {
   WV_wells: "#ff6600",
   WV_parcels: "#33cc33",
@@ -57,12 +60,48 @@ const colors = {
   OH_parcels: "#ff0099"
 };
 
-// --- Function to build each layer automatically ---
+// --- Custom popup formatting based on type ---
+function buildPopupHTML(folder, props) {
+  let html = `<div class="popup-header">${folder.replace("_"," ")} Info</div>`;
+  html += "<table class='popup-table'>";
+  
+  const keys = Object.keys(props);
+  
+  // Define custom priority fields for each type
+  const priorities = {
+    wells: ["Well_Name","API","Operator","County","State","Formation","Status"],
+    parcels: ["FullOwnerName","FullOwnerAddress","Acres_C","CountyID","Map","Parcel","Dist"],
+    laterals: ["Well_Name","API","Operator","Length","Formation"]
+  };
+
+  const type = folder.includes("well") ? "wells"
+              : folder.includes("parcel") ? "parcels"
+              : folder.includes("lateral") ? "laterals" : null;
+
+  const ordered = [];
+  if (type && priorities[type]) {
+    for (const k of priorities[type]) {
+      if (props[k]) ordered.push([k, props[k]]);
+    }
+  }
+  // Add remaining properties
+  for (const k of keys) {
+    if (!ordered.find(pair => pair[0] === k)) ordered.push([k, props[k]]);
+  }
+
+  for (const [key, val] of ordered) {
+    html += `<tr><td><b>${key}</b></td><td>${val}</td></tr>`;
+  }
+  html += "</table>";
+  return html;
+}
+
+// --- Load each vector tile folder automatically ---
 async function loadVectorLayer(folder) {
   try {
     const response = await fetch(`tiles/${folder}/metadata.json`);
     const metadata = await response.json();
-    const id = metadata.vector_layers[0].id; // auto-detect id
+    const id = metadata.vector_layers[0].id;
     const color = colors[folder] || "#3388ff";
 
     const layer = L.vectorGrid.protobuf(`tiles/${folder}/{z}/{x}/{y}.pbf`, {
@@ -72,7 +111,7 @@ async function loadVectorLayer(folder) {
           weight: 1,
           fill: true,
           fillColor: color,
-          fillOpacity: 0.4
+          fillOpacity: 0.3
         }
       },
       interactive: true,
@@ -82,9 +121,8 @@ async function loadVectorLayer(folder) {
 
     layer.on("click", e => {
       const props = e.layer.properties || {};
-      let html = `<b>${folder}</b><br>`;
-      for (const key in props) html += `<b>${key}</b>: ${props[key]}<br>`;
-      L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
+      const popupHTML = buildPopupHTML(folder, props);
+      L.popup().setLatLng(e.latlng).setContent(popupHTML).openOn(map);
     });
 
     return [folder, layer];
@@ -94,7 +132,7 @@ async function loadVectorLayer(folder) {
   }
 }
 
-// --- Build and add layer control ---
+// --- Build map layers dynamically ---
 (async function init() {
   const overlayLayers = {};
   for (const f of tileFolders) {
@@ -102,7 +140,7 @@ async function loadVectorLayer(folder) {
     if (result) {
       const [name, layer] = result;
       overlayLayers[name] = layer;
-      if (name.startsWith("WV_")) layer.addTo(map); // turn on WV by default
+      if (name.startsWith("WV_")) layer.addTo(map); // default WV visible
     }
   }
   L.control.layers(
