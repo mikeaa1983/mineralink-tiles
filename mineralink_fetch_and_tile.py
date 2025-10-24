@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
-# mineralink_fetch_and_tile.py
-# Fetches ArcGIS REST layers, reprojects to EPSG:4326, and builds Tippecanoe vector tiles.
-
-import os
-import json
-import shutil
-import subprocess
-import requests
+import os, json, requests, subprocess, shutil
 import geopandas as gpd
-from pathlib import Path
 
-# ------------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------------
+# ============================================================
+# CONFIGURATION
+# ============================================================
+OUT_TILES_DIR = "tiles"
+TIPPECANOE_CMD = "tippecanoe"
+TIPPECANOE_MINZOOM = 4
+TIPPECANOE_MAXZOOM = 14
+
+# ArcGIS feature services
 DATASETS = [
     # --- WEST VIRGINIA ---
-    {"name": "WV_wells", "url": "https://tagis.dep.wv.gov/arcgis/rest/services/WVDEP_enterprise/oil_gas/MapServer/1/query"},
+    {"name": "WV_wells", "url": "https://tagis.dep.wv.gov/arcgis/rest/services/WVDEP_enterprise/oil_gas/MapServer/0/query"},
     {"name": "WV_parcels", "url": "https://services.wvgis.wvu.edu/arcgis/rest/services/Planning_Cadastre/WV_Parcels/MapServer/0/query"},
     {"name": "WV_pipelines", "url": "https://tagis.dep.wv.gov/arcgis/rest/services/app_services/pipeline_construction/MapServer/0/query"},
 
     # --- OHIO ---
-    {"name": "OH_wells", "url": "https://gis2.ohiodnr.gov/arcgis/rest/services/DOG_Services/Oilgas_Wells_10_JS_TEST/MapServer/0/query"},
+    {"name": "OH_wells", "url": "https://gis.ohiodnr.gov/arcgis/rest/services/DOG_Services/MapServer/0/query"},
     {"name": "OH_parcels", "url": "https://gis.ohiodnr.gov/arcgis/rest/services/OIT_Services/odnr_landbase/MapServer/4/query"},
 
     # --- PENNSYLVANIA ---
@@ -29,21 +27,17 @@ DATASETS = [
     {"name": "PA_laterals", "url": "https://gis.dep.pa.gov/depgisprd/rest/services/OilGas_Collector/OG_Collector_Laterals/FeatureServer/0/query"},
 
     # --- TEXAS ---
-    {"name": "TX_wells", "url": "https://www.gis.hctx.net/arcgishcpid/rest/services/TXRRC/Wells/MapServer/0/query"},
-    {"name": "TX_parcels", "url": "https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap24_land_parcels_48/MapServer/0/query"},
+    {"name": "TX_wells", "url": "https://rrc-txdigital.maps.arcgis.com/sharing/rest/content/items/5a28b3085edb47bfa8f35e6d8a3124b8/data"},
+    {"name": "TX_parcels", "url": "https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap25_land_parcels_48/MapServer/0/query"},
 ]
 
-OUT_TILES_DIR = Path("tiles")
-TIPPECANOE_CMD = "tippecanoe"
-TIPPECANOE_MINZOOM = 4
-TIPPECANOE_MAXZOOM = 14
 
-# ------------------------------------------------------------
+# ============================================================
 # FUNCTIONS
-# ------------------------------------------------------------
+# ============================================================
 
 def fetch_geojson(dataset):
-    """Fetch a dataset as GeoJSON, with chunked logic for large layers like TX parcels."""
+    """Fetch a dataset as GeoJSON (with chunking for TX_parcels)."""
     name, url = dataset["name"], dataset["url"]
     print(f"\n=== Fetching {name} ===")
 
@@ -54,9 +48,8 @@ def fetch_geojson(dataset):
         "outSR": "4326",
     }
 
-    # Handle massive Texas parcels in smaller geographic chunks
+    # --- Handle Texas parcels chunked ---
     if name == "TX_parcels":
-        # Roughly divides Texas into 10 bounding boxes (WGS84)
         bboxes = [
             (-106.7, 36.5, -104.5, 34.5),
             (-104.5, 36.5, -102.5, 34.5),
@@ -83,11 +76,8 @@ def fetch_geojson(dataset):
                 resp.raise_for_status()
                 chunk = resp.json()
                 feats = chunk.get("features", [])
-                if feats:
-                    features.extend(feats)
-                    print(f"    + {len(feats)} features")
-                else:
-                    print(f"    (no features)")
+                features.extend(feats)
+                print(f"    + {len(feats)} features")
             except Exception as e:
                 print(f"⚠️  Chunk {i} failed: {e}")
 
@@ -98,7 +88,7 @@ def fetch_geojson(dataset):
         print(f"✅ Combined {len(features)} features into {file_name}")
         return file_name
 
-    # Default single-request fetch
+    # --- Normal fetch for all others ---
     try:
         resp = requests.get(url, params=params, timeout=180)
         resp.raise_for_status()
@@ -113,34 +103,47 @@ def fetch_geojson(dataset):
         return None
 
 
-def reproject_to_4326(input_file):
-    """Ensure reprojection to EPSG:4326."""
-    if not input_file or not os.path.exists(input_file):
-        return None
-    print(f"Reprojecting {input_file} → EPSG:4326")
+def reproject_to_4326(input_geojson):
+    """Reproject a GeoJSON to EPSG:4326."""
     try:
-        gdf = gpd.read_file(input_file)
+        gdf = gpd.read_file(input_geojson)
+        if gdf.empty:
+            print(f"⚠️ {input_geojson} is empty, skipping reprojection.")
+            return None
         gdf = gdf.to_crs(epsg=4326)
-        out_file = input_file.replace(".geojson", "_4326.geojson")
-        gdf.to_file(out_file, driver="GeoJSON")
-        print(f"Wrote {out_file}")
-        return out_file
+        output_geojson = input_geojson.replace(".geojson", "_4326.geojson")
+        gdf.to_file(output_geojson, driver="GeoJSON")
+        print(f"Wrote {output_geojson}")
+        return output_geojson
     except Exception as e:
-        print(f"⚠️ Reprojection failed for {input_file}: {e}")
+        print(f"⚠️ Error reprojecting {input_geojson}: {e}")
         return None
 
 
 def build_tiles(name, geojson_file):
-    """Run Tippecanoe to create vector tiles."""
+    """Run Tippecanoe to create vector tiles, skipping empty layers."""
     if not geojson_file or not os.path.exists(geojson_file):
+        print(f"⚠️ No GeoJSON for {name}, skipping tile build.")
         return
-    out_dir = OUT_TILES_DIR / name
-    if out_dir.exists():
+
+    try:
+        with open(geojson_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not data.get("features"):
+            print(f"⚠️ {name} has no features, skipping Tippecanoe build.")
+            return
+    except Exception as e:
+        print(f"⚠️ Could not read {geojson_file}: {e}")
+        return
+
+    out_dir = os.path.join(OUT_TILES_DIR, name)
+    if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
+
     cmd = [
         TIPPECANOE_CMD,
-        "--output-to-directory", str(out_dir),
+        "--output-to-directory", out_dir,
         "--layer", name,
         "--minimum-zoom", str(TIPPECANOE_MINZOOM),
         "--maximum-zoom", str(TIPPECANOE_MAXZOOM),
@@ -148,24 +151,26 @@ def build_tiles(name, geojson_file):
         geojson_file,
     ]
     print(f"Building tiles for {name} ...")
-    subprocess.run(cmd, check=True)
-    print(f"✅ Tiles built for {name} in {out_dir}")
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"✅ Tiles built for {name} in {out_dir}")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ Tippecanoe failed for {name}: {e}")
 
 
+# ============================================================
+# MAIN
+# ============================================================
 def main():
-    if OUT_TILES_DIR.exists():
-        shutil.rmtree(OUT_TILES_DIR)
-    OUT_TILES_DIR.mkdir(parents=True, exist_ok=True)
+    print("=== Starting Mineralink Tile Builder ===")
+    os.makedirs(OUT_TILES_DIR, exist_ok=True)
 
     for ds in DATASETS:
-        src = fetch_geojson(ds)
-        reproj = reproject_to_4326(src)
+        f = fetch_geojson(ds)
+        reproj = reproject_to_4326(f) if f else None
         build_tiles(ds["name"], reproj)
-        if src and os.path.exists(src): os.remove(src)
-        if reproj and os.path.exists(reproj): os.remove(reproj)
 
     print("\n🎉 All layers processed successfully! Tiles ready in /tiles/")
-
 
 if __name__ == "__main__":
     main()
