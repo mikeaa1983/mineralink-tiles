@@ -1,71 +1,58 @@
-name: Build and publish MineraLink tiles
-
-permissions:
-  contents: write
+name: Daily Build and Deploy Tiles
 
 on:
   schedule:
-    - cron: '0 3 * * *'   # Run daily at 3 AM UTC
+    - cron: "0 2 * * *"  # run daily at 2 AM UTC
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install Tippecanoe
-        run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libsqlite3-dev zlib1g-dev
-          git clone https://github.com/mapbox/tippecanoe.git
-          cd tippecanoe
-          make -j
-          sudo make install
+          sudo apt-get install -y tippecanoe
+          python -m pip install --upgrade pip
+          pip install geopandas shapely requests fiona pyproj pandas
 
-      - name: Run MineraLink data fetch and tile build
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build vector tiles
         run: |
-          mkdir -p data tiles
-          python3 mineralink_fetch_and_tile.py
+          python mineralink_fetch_and_tile.py
+          ls -R tiles | head -50
 
-      - name: Commit and push tiles to gh-pages
+      - name: Archive tiles for transfer
+        run: tar -czf tiles.tar.gz tiles
+
+      - name: Switch to gh-pages and unpack tiles
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
 
-          git fetch origin gh-pages || true
-          git checkout gh-pages || git checkout --orphan gh-pages
+          if git show-ref --verify --quiet refs/heads/gh-pages; then
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+            git rm -rf .
+          fi
 
-          # Remove old tiles and copy new ones
           rm -rf tiles
-          cp -r ../tiles ./tiles || cp -r tiles ./tiles || true
+          tar -xzf ../tiles.tar.gz
+          echo "Tiles directory after extract:"
+          ls -R tiles | head -50
 
-          echo "Tiles directory after copy:"
-          ls -R tiles || true
-
-          git add tiles index.html || true
-          git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes to commit"
+      - name: Commit and push to gh-pages
+        run: |
+          git add tiles
+          git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
           git push origin gh-pages --force
-
-      - name: Upload tiles artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tiles
-          path: tiles
