@@ -3,7 +3,7 @@ name: Daily Build and Deploy Tiles
 on:
   schedule:
     - cron: "0 2 * * *"  # run daily at 2 AM UTC
-  workflow_dispatch:       # manual trigger allowed
+  workflow_dispatch:       # allow manual trigger
 
 jobs:
   build-and-publish:
@@ -29,52 +29,51 @@ jobs:
 
       - name: Build vector tiles
         run: |
-          echo "🏗️ Running tile builder..."
+          echo "🏗️ Building tiles..."
           python mineralink_fetch_and_tile.py
-          echo "✅ Tiles built:"
           ls -R tiles | head -40
 
       - name: Archive tiles
         run: |
-          echo "📦 Compressing tiles..."
+          echo "📦 Creating archive..."
           tar -czf /tmp/tiles.tar.gz tiles
           ls -lh /tmp/tiles.tar.gz
+
+      - name: Save site files before switching branch
+        run: |
+          echo "💾 Saving index.html and .nojekyll..."
+          mkdir /tmp/site
+          cp index.html /tmp/site/index.html
+          cp .nojekyll /tmp/site/.nojekyll || echo "⚠️ No .nojekyll found"
 
       - name: Deploy to gh-pages
         run: |
           echo "🚀 Deploying to gh-pages branch..."
-
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
-          # Switch to gh-pages (create if needed)
+          # Switch to gh-pages (create if missing)
           if git show-ref --verify --quiet refs/heads/gh-pages; then
             git checkout gh-pages
           else
             git checkout --orphan gh-pages
           fi
 
-          # Clean old content and unpack tiles
           rm -rf *
           tar -xzf /tmp/tiles.tar.gz
 
-          # Force copy HTML and disable Jekyll
-          if [ -f ../index.html ]; then
-            cp ../index.html ./index.html
-          else
-            echo "<!DOCTYPE html><html><body><h1>Mineralink Map</h1><p>No index.html found in main branch.</p></body></html>" > index.html
-          fi
+          # Restore HTML and .nojekyll
+          cp /tmp/site/index.html ./index.html
+          cp /tmp/site/.nojekyll ./.nojekyll || echo "⚠️ .nojekyll not found in /tmp/site"
 
-          echo "# Disable Jekyll" > .nojekyll
-
-          echo "📂 Contents of gh-pages after deploy:"
+          echo "📂 Files now in gh-pages:"
           ls -R | head -50
 
           git add .
-          git commit -m "Auto-update tiles + site $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes to commit"
+          git commit -m "Auto-update tiles + site $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
           git push origin gh-pages --force
 
       - name: Confirm deployment
         run: |
-          echo "🌐 Deployment complete!"
+          echo "🌐 Deployed successfully!"
           echo "👉 Visit: https://mikeaa1983.github.io/mineralink-tiles/"
