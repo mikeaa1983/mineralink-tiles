@@ -2,46 +2,115 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Mineralink Multi-State Tiles</title>
+  <title>Mineralink Multi-State Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js"></script>
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
+    .info-popup {
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      line-height: 1.3em;
+    }
+    .info-popup strong { color: #003366; }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <script>
-    const map = L.map("map").setView([38.5, -95], 6);
-
-    const basemap = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19, attribution: "© OpenStreetMap"
+    // Base map
+    const map = L.map("map").setView([38.5, -96], 6);
+    const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap contributors"
     }).addTo(map);
 
-    function vectorLayer(path, name, style) {
-      return L.vectorGrid.protobuf(path, {
+    // Helper for creating vector layers with click popup
+    function vectorLayer(path, name, style, displayFields = []) {
+      const layer = L.vectorGrid.protobuf(path, {
         vectorTileLayerStyles: { [name]: style },
-        maxNativeZoom: 14, maxZoom: 18, interactive: true
+        maxNativeZoom: 14,
+        maxZoom: 18,
+        interactive: true
       });
+
+      // Attach click handler
+      layer.on("click", (e) => {
+        const props = e.layer.properties || {};
+        let html = `<div class="info-popup"><strong>${name}</strong><br/>`;
+        if (displayFields.length === 0) {
+          // show first few attributes if not specified
+          for (const [key, val] of Object.entries(props).slice(0, 6)) {
+            html += `<b>${key}</b>: ${val}<br/>`;
+          }
+        } else {
+          displayFields.forEach(field => {
+            if (props[field]) html += `<b>${field}</b>: ${props[field]}<br/>`;
+          });
+        }
+        html += "</div>";
+        L.popup({ maxWidth: 300 })
+          .setLatLng(e.latlng)
+          .setContent(html)
+          .openOn(map);
+      });
+
+      return layer;
     }
 
     const baseUrl = "https://mikeaa1983.github.io/mineralink-tiles/tiles";
 
     const overlays = {
-      "WV Wells": vectorLayer(`${baseUrl}/WV_wells/{z}/{x}/{y}.pbf`, "WV_wells", {radius:3,fillColor:"#00aaff",color:"#003366",weight:0.3,fillOpacity:0.9}),
-      "WV Parcels": vectorLayer(`${baseUrl}/WV_parcels/{z}/{x}/{y}.pbf`, "WV_parcels", {color:"#cc33ff",weight:1,fillOpacity:0.2}),
-      "OH Wells": vectorLayer(`${baseUrl}/OH_wells/{z}/{x}/{y}.pbf`, "OH_wells", {radius:3,fillColor:"#009933",color:"#004d1a",weight:0.3,fillOpacity:0.8}),
-      "OH Parcels": vectorLayer(`${baseUrl}/OH_parcels/{z}/{x}/{y}.pbf`, "OH_parcels", {color:"#66ff99",weight:1,fillOpacity:0.3}),
-      "PA Wells": vectorLayer(`${baseUrl}/PA_wells/{z}/{x}/{y}.pbf`, "PA_wells", {radius:3,fillColor:"#ff6600",color:"#663300",weight:0.4,fillOpacity:0.8}),
-      "PA Laterals": vectorLayer(`${baseUrl}/PA_laterals/{z}/{x}/{y}.pbf`, "PA_laterals", {color:"#9933ff",weight:1.2,fillOpacity:0.3}),
-      "PA Parcels": vectorLayer(`${baseUrl}/PA_parcels/{z}/{x}/{y}.pbf`, "PA_parcels", {color:"#00ffff",weight:1,fillOpacity:0.3}),
-      "TX Wells": vectorLayer(`${baseUrl}/TX_wells/{z}/{x}/{y}.pbf`, "TX_wells", {radius:3,fillColor:"#00ff00",color:"#006600",weight:0.4,fillOpacity:0.8}),
-      "TX Parcels": vectorLayer(`${baseUrl}/TX_parcels/{z}/{x}/{y}.pbf`, "TX_parcels", {color:"#0099ff",weight:1,fillOpacity:0.25})
+      "WV Wells": vectorLayer(
+        `${baseUrl}/WV_wells/{z}/{x}/{y}.pbf`, "WV_wells",
+        { radius:3, fillColor:"#00aaff", color:"#003366", weight:0.3, fillOpacity:0.9 },
+        ["WELL_NAME", "OPERATOR", "API"]
+      ),
+      "WV Parcels": vectorLayer(
+        `${baseUrl}/WV_parcels/{z}/{x}/{y}.pbf`, "WV_parcels",
+        { color:"#cc33ff", weight:1, fillOpacity:0.2 },
+        ["PARCEL_ID", "OWNER", "COUNTY"]
+      ),
+      "OH Wells": vectorLayer(
+        `${baseUrl}/OH_wells/{z}/{x}/{y}.pbf`, "OH_wells",
+        { radius:3, fillColor:"#009933", color:"#004d1a", weight:0.3, fillOpacity:0.8 },
+        ["WELL_NAME", "OPERATOR", "API"]
+      ),
+      "OH Parcels": vectorLayer(
+        `${baseUrl}/OH_parcels/{z}/{x}/{y}.pbf`, "OH_parcels",
+        { color:"#66ff99", weight:1, fillOpacity:0.3 },
+        ["PARCEL_ID", "OWNER", "COUNTY"]
+      ),
+      "PA Wells": vectorLayer(
+        `${baseUrl}/PA_wells/{z}/{x}/{y}.pbf`, "PA_wells",
+        { radius:3, fillColor:"#ff6600", color:"#663300", weight:0.4, fillOpacity:0.8 },
+        ["WELL_NAME", "OPERATOR", "API"]
+      ),
+      "PA Laterals": vectorLayer(
+        `${baseUrl}/PA_laterals/{z}/{x}/{y}.pbf`, "PA_laterals",
+        { color:"#9933ff", weight:1.2, fillOpacity:0.3 },
+        ["LATERAL_ID", "OPERATOR"]
+      ),
+      "PA Parcels": vectorLayer(
+        `${baseUrl}/PA_parcels/{z}/{x}/{y}.pbf`, "PA_parcels",
+        { color:"#00ffff", weight:1, fillOpacity:0.3 },
+        ["PARCEL_ID", "OWNER", "COUNTY"]
+      ),
+      "TX Wells": vectorLayer(
+        `${baseUrl}/TX_wells/{z}/{x}/{y}.pbf`, "TX_wells",
+        { radius:3, fillColor:"#00ff00", color:"#006600", weight:0.4, fillOpacity:0.8 },
+        ["WELL_NAME", "OPERATOR", "API"]
+      ),
+      "TX Parcels": vectorLayer(
+        `${baseUrl}/TX_parcels/{z}/{x}/{y}.pbf`, "TX_parcels",
+        { color:"#0099ff", weight:1, fillOpacity:0.25 },
+        ["PARCEL_ID", "OWNER", "COUNTY"]
+      )
     };
 
-    L.control.layers({"OpenStreetMap": basemap}, overlays, {collapsed:false}).addTo(map);
+    L.control.layers({ "OpenStreetMap": osm }, overlays, { collapsed: false }).addTo(map);
     overlays["WV Wells"].addTo(map);
   </script>
 </body>
