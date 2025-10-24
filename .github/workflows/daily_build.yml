@@ -58,8 +58,11 @@ jobs:
           rm -rf tiles
           tar -xzf /tmp/tiles.tar.gz
 
-          # Copy site files (index.html + extras)
-          cp ../index.html ./index.html || echo "⚠️ index.html not found in root."
+          # Copy HTML and disable Jekyll
+          cp ../index.html ./index.html || echo "⚠️ index.html not found."
+          echo "# Disable Jekyll" > .nojekyll
+
+          # Optional: copy any asset folders if you add them later
           if [ -d "../assets" ]; then cp -r ../assets ./assets; fi
           if [ -d "../css" ]; then cp -r ../css ./css; fi
           if [ -d "../js" ]; then cp -r ../js ./js; fi
@@ -73,5 +76,5 @@ jobs:
 
       - name: Confirm deployment
         run: |
-          echo "🌐 Deployed site should be live at:"
+          echo "🌐 Site should be live at:"
           echo "👉 https://mikeaa1983.github.io/mineralink-tiles/"
