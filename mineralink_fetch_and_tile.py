@@ -10,6 +10,9 @@ TIPPECANOE_CMD = "tippecanoe"
 TIPPECANOE_MINZOOM = 4
 TIPPECANOE_MAXZOOM = 14
 
+# ============================================================
+# DATASETS (Wells + Parcels by State)
+# ============================================================
 DATASETS = [
     # --- WEST VIRGINIA ---
     {"name": "WV_wells", "url": "https://tagis.dep.wv.gov/arcgis/rest/services/WVDEP_enterprise/oil_gas/MapServer/0/query"},
@@ -26,16 +29,16 @@ DATASETS = [
     {"name": "PA_laterals", "url": "https://gis.dep.pa.gov/depgisprd/rest/services/OilGas_Collector/OG_Collector_Laterals/FeatureServer/0/query"},
 
     # --- TEXAS ---
-    {"name": "TX_wells", "url": "https://rrc-txdigital.maps.arcgis.com/sharing/rest/content/items/5a28b3085edb47bfa8f35e6d8a3124b8/data"},
-    {"name": "TX_parcels", "url": "https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap25_land_parcels_48/MapServer/0/query"},
+    {"name": "TX_wells", "url": "https://gis.rrc.texas.gov/arcgis/rest/services/RRC_Public/RRC_Wells/MapServer/0/query"},
+    {"name": "TX_parcels", "url": "https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap25_land_parcels_48/MapServer/0/query"}
 ]
+
 
 # ============================================================
 # FUNCTIONS
 # ============================================================
-
 def fetch_geojson(dataset):
-    """Fetch dataset as GeoJSON, chunking Texas parcels."""
+    """Fetch a dataset as GeoJSON."""
     name, url = dataset["name"], dataset["url"]
     print(f"\n=== Fetching {name} ===")
 
@@ -43,90 +46,50 @@ def fetch_geojson(dataset):
         "where": "1=1",
         "outFields": "*",
         "f": "geojson",
-        "outSR": "4326"
+        "outSR": "4326",
     }
 
-    # --- Chunk TX parcels ---
-    if name == "TX_parcels":
-        bboxes = [
-            (-106.7, 34.5, -94.0, 36.5),
-            (-106.7, 32.0, -94.0, 34.5),
-            (-106.7, 29.5, -94.0, 32.0)
-        ]
-        features = []
-        for i, (xmin, ymin, xmax, ymax) in enumerate(bboxes, start=1):
-            print(f" ▸ Chunk {i}/{len(bboxes)}: {xmin},{ymin},{xmax},{ymax}")
-            bbox_params = params.copy()
-            bbox_params.update({
-                "geometry": f"{xmin},{ymin},{xmax},{ymax}",
-                "geometryType": "esriGeometryEnvelope",
-                "spatialRel": "esriSpatialRelIntersects"
-            })
-            try:
-                r = requests.get(url, params=bbox_params, timeout=180)
-                r.raise_for_status()
-                chunk = r.json()
-                feats = chunk.get("features", [])
-                features.extend(feats)
-                print(f"   + {len(feats)} features")
-            except Exception as e:
-                print(f"⚠️ Chunk {i} failed: {e}")
-
-        geo = {"type": "FeatureCollection", "features": features}
-        out_file = f"{name}.geojson"
-        with open(out_file, "w", encoding="utf-8") as f:
-            json.dump(geo, f)
-        print(f"✅ Combined {len(features)} features -> {out_file}")
-        return out_file
-
-    # --- Normal datasets ---
     try:
-        r = requests.get(url, params=params, timeout=180)
-        r.raise_for_status()
-        geo = r.json()
-        out_file = f"{name}.geojson"
-        with open(out_file, "w", encoding="utf-8") as f:
+        resp = requests.get(url, params=params, timeout=180)
+        resp.raise_for_status()
+        geo = resp.json()
+        file_name = f"{name}.geojson"
+        with open(file_name, "w", encoding="utf-8") as f:
             json.dump(geo, f)
-        print(f"Saved {out_file} ({len(geo.get('features', []))} features)")
-        return out_file
+        print(f"✅ Saved {file_name} ({len(geo.get('features', []))} features)")
+        return file_name
     except Exception as e:
         print(f"⚠️ Error fetching {name}: {e}")
         return None
 
 
-def reproject_to_4326(in_geojson):
-    """Force to EPSG:4326 if CRS missing."""
+def reproject_to_4326(input_geojson):
+    """Reproject to EPSG:4326 for Tippecanoe."""
     try:
-        gdf = gpd.read_file(in_geojson)
+        gdf = gpd.read_file(input_geojson)
         if gdf.empty:
-            print(f"⚠️ {in_geojson} is empty, skipping reprojection.")
+            print(f"⚠️ {input_geojson} empty; skip reprojection")
             return None
-        if gdf.crs is None:
-            gdf.set_crs(epsg=3857, inplace=True)
         gdf = gdf.to_crs(epsg=4326)
-        out_geojson = in_geojson.replace(".geojson", "_4326.geojson")
-        gdf.to_file(out_geojson, driver="GeoJSON")
-        print(f"Reprojected -> {out_geojson}")
-        return out_geojson
+        output_geojson = input_geojson.replace(".geojson", "_4326.geojson")
+        gdf.to_file(output_geojson, driver="GeoJSON")
+        print(f"🗺️ Wrote {output_geojson}")
+        return output_geojson
     except Exception as e:
-        print(f"⚠️ Error reprojecting {in_geojson}: {e}")
+        print(f"⚠️ Reprojection error for {input_geojson}: {e}")
         return None
 
 
 def build_tiles(name, geojson_file):
-    """Run Tippecanoe and build full zoom vector tiles."""
+    """Run Tippecanoe to create vector tiles."""
     if not geojson_file or not os.path.exists(geojson_file):
-        print(f"⚠️ No GeoJSON for {name}, skipping.")
+        print(f"⚠️ Missing GeoJSON for {name}")
         return
 
-    try:
-        with open(geojson_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not data.get("features"):
-            print(f"⚠️ {name} has no features, skipping Tippecanoe.")
-            return
-    except Exception as e:
-        print(f"⚠️ Could not read {geojson_file}: {e}")
+    with open(geojson_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not data.get("features"):
+        print(f"⚠️ {name} empty, skipping Tippecanoe.")
         return
 
     out_dir = os.path.join(OUT_TILES_DIR, name)
@@ -140,15 +103,13 @@ def build_tiles(name, geojson_file):
         "--layer", name,
         "--minimum-zoom", str(TIPPECANOE_MINZOOM),
         "--maximum-zoom", str(TIPPECANOE_MAXZOOM),
-        "--no-feature-limit",
-        "--no-tile-size-limit",
         "--force",
-        geojson_file
+        geojson_file,
     ]
-    print(f"Building tiles for {name} ...")
+
     try:
         subprocess.run(cmd, check=True)
-        print(f"✅ Tiles built for {name} -> {out_dir}")
+        print(f"✅ Tiles built: {out_dir}")
     except subprocess.CalledProcessError as e:
         print(f"⚠️ Tippecanoe failed for {name}: {e}")
 
@@ -162,10 +123,11 @@ def main():
 
     for ds in DATASETS:
         f = fetch_geojson(ds)
-        repro = reproject_to_4326(f) if f else None
-        build_tiles(ds["name"], repro)
+        reproj = reproject_to_4326(f) if f else None
+        build_tiles(ds["name"], reproj)
 
-    print("\n🎉 All layers processed successfully! Tiles ready in /tiles/")
+    print("\n🎉 Finished building all tiles!")
+
 
 if __name__ == "__main__":
     main()
