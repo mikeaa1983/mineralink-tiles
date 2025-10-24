@@ -2,8 +2,8 @@ name: Daily Build and Deploy Tiles
 
 on:
   schedule:
-    - cron: "0 2 * * *"
-  workflow_dispatch:
+    - cron: "0 2 * * *"  # runs daily at 2 AM UTC
+  workflow_dispatch:       # allow manual trigger
 
 jobs:
   build-and-publish:
@@ -30,19 +30,23 @@ jobs:
       - name: Build vector tiles
         run: |
           python mineralink_fetch_and_tile.py
-          echo "Tiles generated:"
+          echo "✅ Tiles generated:"
           ls -R tiles | head -50
 
       - name: Archive tiles
         run: |
+          echo "📦 Creating archive..."
           tar -czf /tmp/tiles.tar.gz tiles
           ls -lh /tmp/tiles.tar.gz
 
-      - name: Switch to gh-pages branch and deploy
+      - name: Deploy to gh-pages
         run: |
+          echo "🚀 Deploying tiles and HTML to gh-pages..."
+
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
+          # Switch to gh-pages branch (create if missing)
           if git show-ref --verify --quiet refs/heads/gh-pages; then
             git checkout gh-pages
           else
@@ -50,11 +54,24 @@ jobs:
             git rm -rf .
           fi
 
+          # Clean old content
           rm -rf tiles
           tar -xzf /tmp/tiles.tar.gz
-          echo "Extracted tiles:"
-          ls -R tiles | head -50
 
-          git add tiles
-          git commit -m "Auto-update tiles $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
+          # Copy site files (index.html + extras)
+          cp ../index.html ./index.html || echo "⚠️ index.html not found in root."
+          if [ -d "../assets" ]; then cp -r ../assets ./assets; fi
+          if [ -d "../css" ]; then cp -r ../css ./css; fi
+          if [ -d "../js" ]; then cp -r ../js ./js; fi
+
+          echo "📂 Files in gh-pages branch:"
+          ls -R | head -50
+
+          git add .
+          git commit -m "Auto-update tiles + site $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes to commit."
           git push origin gh-pages --force
+
+      - name: Confirm deployment
+        run: |
+          echo "🌐 Deployed site should be live at:"
+          echo "👉 https://mikeaa1983.github.io/mineralink-tiles/"
