@@ -2,149 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Mineralink Vector Tile Layers</title>
+  <title>Mineralink Multi-State Vector Tiles</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js"></script>
-
   <style>
-    html, body, #map {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      font-family: system-ui, sans-serif;
-    }
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
     .legend {
-      background: rgba(255, 255, 255, 0.85);
+      background: rgba(255,255,255,0.9);
       padding: 6px 10px;
-      border-radius: 4px;
+      border-radius: 5px;
       box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      font-family: system-ui, sans-serif;
       line-height: 1.2;
     }
   </style>
 </head>
 <body>
   <div id="map"></div>
-
   <script>
-    // -----------------------------
-    // Base map
-    // -----------------------------
-    const map = L.map("map").setView([39.0, -80.0], 7);
-
+    const map = L.map("map").setView([38.5, -82], 6);
     const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      attribution: "© OpenStreetMap contributors",
+      attribution: "© OpenStreetMap contributors"
     }).addTo(map);
 
-    const esri = L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { attribution: "© Esri" }
-    );
-
-    // -----------------------------
-    // Helper function to create VectorGrid layer
-    // -----------------------------
-    function createVectorLayer(urlTemplate, layerName, style) {
-      return L.vectorGrid.protobuf(urlTemplate, {
-        vectorTileLayerStyles: {
-          [layerName]: style,
-        },
+    function createVectorLayer(url, name, style) {
+      return L.vectorGrid.protobuf(url, {
+        vectorTileLayerStyles: { [name]: style },
         interactive: true,
         maxNativeZoom: 14,
-        maxZoom: 18,
+        maxZoom: 18
       });
     }
 
-    // -----------------------------
-    // Vector tile layers
-    // -----------------------------
     const baseUrl = "https://mikeaa1983.github.io/mineralink-tiles/tiles";
 
-    // Wells
-    const wells = createVectorLayer(`${baseUrl}/wells/{z}/{x}/{y}.pbf`, "wells", {
-      radius: 3,
-      fillColor: "#00aaff",
-      color: "#003366",
-      weight: 0.3,
-      fillOpacity: 0.9,
-    });
-
-    // Tracts
-    const tracts = createVectorLayer(`${baseUrl}/tracts/{z}/{x}/{y}.pbf`, "tracts", {
-      color: "#ff00ff",
-      weight: 1,
-      fillColor: "#ff66ff",
-      fillOpacity: 0.3,
-    });
-
-    // Leases
-    const leases = createVectorLayer(`${baseUrl}/leases/{z}/{x}/{y}.pbf`, "leases", {
-      color: "#ffa500",
-      weight: 1,
-      fillColor: "#ffd580",
-      fillOpacity: 0.4,
-    });
-
-    // -----------------------------
-    // Popup behavior for all layers
-    // -----------------------------
-    function bindPopup(layer, fields = []) {
-      layer.on("click", function (e) {
-        const p = e.layer.properties;
-        const info = Object.entries(p)
-          .filter(([k, v]) => v && v !== "null")
-          .slice(0, 10) // limit to first 10 fields
-          .map(([k, v]) => `<b>${k}:</b> ${v}`)
-          .join("<br/>");
-        L.popup()
-          .setLatLng(e.latlng)
-          .setContent(info || "No attributes")
-          .openOn(map);
-      });
-    }
-
-    [wells, tracts, leases].forEach(bindPopup);
-
-    // -----------------------------
-    // Layer control
-    // -----------------------------
-    const baseMaps = {
-      "OpenStreetMap": osm,
-      "Esri Imagery": esri,
-    };
+    const wells = createVectorLayer(`${baseUrl}/WV_wells/{z}/{x}/{y}.pbf`, "WV_wells", {radius:3, fillColor:"#00aaff", color:"#003366", weight:0.3, fillOpacity:0.9});
+    const pipelines = createVectorLayer(`${baseUrl}/WV_pipelines/{z}/{x}/{y}.pbf`, "WV_pipelines", {color:"#008000", weight:1.5, fillOpacity:0.3});
+    const parcels = createVectorLayer(`${baseUrl}/WV_parcels/{z}/{x}/{y}.pbf`, "WV_parcels", {color:"#ff00ff", weight:1, fillOpacity:0.2});
+    const paWells = createVectorLayer(`${baseUrl}/PA_wells/{z}/{x}/{y}.pbf`, "PA_wells", {radius:3, fillColor:"#ff6600", color:"#993300", weight:0.4, fillOpacity:0.9});
+    const txWells = createVectorLayer(`${baseUrl}/TX_wells/{z}/{x}/{y}.pbf`, "TX_wells", {radius:3, fillColor:"#00ff00", color:"#006600", weight:0.4, fillOpacity:0.8});
+    const txParcels = createVectorLayer(`${baseUrl}/TX_parcels/{z}/{x}/{y}.pbf`, "TX_parcels", {color:"#00cc99", weight:1, fillOpacity:0.25});
 
     const overlayMaps = {
-      "Wells": wells,
-      "Tracts": tracts,
-      "Leases": leases,
+      "WV Wells": wells,
+      "WV Pipelines": pipelines,
+      "WV Parcels": parcels,
+      "PA Wells": paWells,
+      "TX Wells": txWells,
+      "TX Parcels": txParcels
     };
 
-    L.control.layers(baseMaps, overlayMaps, { collapsed: false }).addTo(map);
+    L.control.layers({"OpenStreetMap": osm}, overlayMaps, {collapsed:false}).addTo(map);
 
-    // Default visible layer
-    wells.addTo(map);
-
-    // -----------------------------
-    // Simple legend
-    // -----------------------------
-    const legend = L.control({ position: "bottomleft" });
-    legend.onAdd = function () {
-      const div = L.DomUtil.create("div", "legend");
-      div.innerHTML = `
-        <b>Legend</b><br/>
-        <span style="color:#00aaff;">●</span> Wells<br/>
-        <span style="color:#ff00ff;">▮</span> Tracts<br/>
-        <span style="color:#ffa500;">▮</span> Leases<br/>
-      `;
-      return div;
-    };
-    legend.addTo(map);
+    Object.values(overlayMaps)[0].addTo(map); // default first layer
   </script>
 </body>
 </html>
