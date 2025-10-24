@@ -4,23 +4,27 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MineraLink – Wells & Parcels Map</title>
+
+<!-- Leaflet + VectorGrid -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js"></script>
+
 <style>
-  html,body,#map{height:100%;margin:0;padding:0}
-  .leaflet-control-layers-expanded{font-size:14px}
-  .popup-table{border-collapse:collapse;width:100%;font-size:13px}
-  .popup-table td{border-bottom:1px solid #ddd;padding:2px 4px;vertical-align:top}
-  .popup-table tr:last-child td{border-bottom:none}
-  .popup-header{font-weight:bold;margin-bottom:5px;text-transform:capitalize}
+  html,body,#map {height:100%;margin:0;padding:0;}
+  .leaflet-control-layers-expanded {font-size:14px;}
+  .popup-table {border-collapse:collapse;width:100%;font-size:13px;}
+  .popup-table td {border-bottom:1px solid #ddd;padding:2px 4px;vertical-align:top;}
+  .popup-table tr:last-child td {border-bottom:none;}
+  .popup-header {font-weight:bold;margin-bottom:5px;text-transform:capitalize;}
 </style>
 </head>
+
 <body>
 <div id="map"></div>
 
 <script>
-// --- Initialize map with Esri hybrid base ---
+// --- Base Layers: Esri Hybrid Satellite + OSM ---
 const esriSat = L.tileLayer(
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   { attribution: "Tiles © Esri, Maxar, Earthstar Geographics" }
@@ -41,7 +45,7 @@ const map = L.map("map", {
   layers: [hybrid]
 });
 
-// --- Layer folders and colors ---
+// --- Vector Layer Folders ---
 const tileFolders = [
   "WV_wells",
   "WV_parcels",
@@ -51,6 +55,7 @@ const tileFolders = [
   "OH_parcels"
 ];
 
+// --- Colors for Layers ---
 const colors = {
   WV_wells: "#ff6600",
   WV_parcels: "#33cc33",
@@ -60,23 +65,25 @@ const colors = {
   OH_parcels: "#ff0099"
 };
 
-// --- Custom popup formatting based on type ---
+// --- Format popup for each layer type ---
 function buildPopupHTML(folder, props) {
-  let html = `<div class="popup-header">${folder.replace("_"," ")} Info</div>`;
+  let html = `<div class="popup-header">${folder.replace("_", " ")} Info</div>`;
   html += "<table class='popup-table'>";
-  
+
   const keys = Object.keys(props);
-  
-  // Define custom priority fields for each type
   const priorities = {
-    wells: ["Well_Name","API","Operator","County","State","Formation","Status"],
-    parcels: ["FullOwnerName","FullOwnerAddress","Acres_C","CountyID","Map","Parcel","Dist"],
-    laterals: ["Well_Name","API","Operator","Length","Formation"]
+    wells: ["Well_Name", "API", "Operator", "County", "State", "Formation", "Status"],
+    parcels: ["FullOwnerName", "FullOwnerAddress", "Acres_C", "CountyID", "Map", "Parcel", "Dist"],
+    laterals: ["Well_Name", "API", "Operator", "Length", "Formation"]
   };
 
-  const type = folder.includes("well") ? "wells"
-              : folder.includes("parcel") ? "parcels"
-              : folder.includes("lateral") ? "laterals" : null;
+  const type = folder.includes("well")
+    ? "wells"
+    : folder.includes("parcel")
+    ? "parcels"
+    : folder.includes("lateral")
+    ? "laterals"
+    : null;
 
   const ordered = [];
   if (type && priorities[type]) {
@@ -84,7 +91,6 @@ function buildPopupHTML(folder, props) {
       if (props[k]) ordered.push([k, props[k]]);
     }
   }
-  // Add remaining properties
   for (const k of keys) {
     if (!ordered.find(pair => pair[0] === k)) ordered.push([k, props[k]]);
   }
@@ -96,29 +102,35 @@ function buildPopupHTML(folder, props) {
   return html;
 }
 
-// --- Load each vector tile folder automatically ---
+// --- Load each vector tile layer ---
 async function loadVectorLayer(folder) {
   try {
+    // Load metadata to find vector layer name
     const response = await fetch(`tiles/${folder}/metadata.json`);
     const metadata = await response.json();
     const id = metadata.vector_layers[0].id;
     const color = colors[folder] || "#3388ff";
 
-    const layer = L.vectorGrid.protobuf(`tiles/${folder}/{z}/{x}/{y}.pbf`, {
-      vectorTileLayerStyles: {
-        [id]: {
-          color: color,
-          weight: 1,
-          fill: true,
-          fillColor: color,
-          fillOpacity: 0.3
-        }
-      },
-      interactive: true,
-      maxNativeZoom: 14,
-      maxZoom: 19
-    });
+    // ✅ FIXED: absolute path to your GitHub Pages tiles
+    const layer = L.vectorGrid.protobuf(
+      `https://mikeaa1983.github.io/mineralink-tiles/tiles/${folder}/{z}/{x}/{y}.pbf`,
+      {
+        vectorTileLayerStyles: {
+          [id]: {
+            color: color,
+            weight: 1,
+            fill: true,
+            fillColor: color,
+            fillOpacity: 0.3
+          }
+        },
+        interactive: true,
+        maxNativeZoom: 14,
+        maxZoom: 19
+      }
+    );
 
+    // Popup event
     layer.on("click", e => {
       const props = e.layer.properties || {};
       const popupHTML = buildPopupHTML(folder, props);
@@ -132,7 +144,7 @@ async function loadVectorLayer(folder) {
   }
 }
 
-// --- Build map layers dynamically ---
+// --- Initialize everything ---
 (async function init() {
   const overlayLayers = {};
   for (const f of tileFolders) {
@@ -140,9 +152,10 @@ async function loadVectorLayer(folder) {
     if (result) {
       const [name, layer] = result;
       overlayLayers[name] = layer;
-      if (name.startsWith("WV_")) layer.addTo(map); // default WV visible
+      if (name.startsWith("WV_")) layer.addTo(map); // WV layers visible by default
     }
   }
+
   L.control.layers(
     { "Satellite + Labels": hybrid, "OpenStreetMap": osm },
     overlayLayers,
