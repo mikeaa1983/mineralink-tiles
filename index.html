@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MineraLink – Wells & Parcels Map</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.vectorgrid/dist/Leaflet.VectorGrid.bundled.js"></script>
+
+<style>
+  html,body,#map {height:100%;margin:0;padding:0;}
+  .leaflet-control-layers-expanded {font-size:14px;}
+  .popup-table {border-collapse:collapse;width:100%;font-size:13px;}
+  .popup-table td {border-bottom:1px solid #ddd;padding:2px 4px;vertical-align:top;}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+// --- Base layers ---
+const esriSat = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  { attribution: "Tiles © Esri, Maxar, Earthstar Geographics" }
+);
+const esriLabels = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+  { attribution: "Labels © Esri" }
+);
+const hybrid = L.layerGroup([esriSat, esriLabels]);
+const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" });
+
+const map = L.map("map", { center: [39, -80], zoom: 7, layers: [hybrid] });
+
+// --- Layers to load ---
+const tileFolders = ["WV_wells","WV_parcels","OH_wells","OH_parcels","PA_wells","PA_parcels","PA_laterals","TX_wells","TX_parcels"];
+
+const colors = {
+  WV_wells: "#ff6600", WV_parcels: "#00ff66",
+  OH_wells: "#00ffff", OH_parcels: "#00ccff",
+  PA_wells: "#ffcc00", PA_parcels: "#ff00ff",
+  PA_laterals: "#9900ff", TX_wells: "#ffaa00", TX_parcels: "#33cc33"
+};
+
+// --- Build popup ---
+function buildPopupHTML(folder, props) {
+  let html = `<b>${folder}</b><table class='popup-table'>`;
+  for (const [k,v] of Object.entries(props)) html += `<tr><td>${k}</td><td>${v}</td></tr>`;
+  html += "</table>";
+  return html;
+}
+
+// --- Load layers ---
+async function loadVectorLayer(folder) {
+  try {
+    const res = await fetch(`${folder}/metadata.json`);
+    const meta = await res.json();
+    const id = meta.vector_layers[0].id;
+    const color = colors[folder] || "#3388ff";
+
+    const layer = L.vectorGrid.protobuf(
+      `https://mikeaa1983.github.io/mineralink-tiles/${folder}/{z}/{x}/{y}.pbf`,
+      {
+        vectorTileLayerStyles: { [id]: { color, weight:1, fill:true, fillColor:color, fillOpacity:0.3 } },
+        interactive:true, maxNativeZoom:14, maxZoom:19
+      }
+    );
+
+    layer.on("click", e => {
+      const props = e.layer.properties || {};
+      L.popup().setLatLng(e.latlng).setContent(buildPopupHTML(folder, props)).openOn(map);
+    });
+
+    return [folder, layer];
+  } catch (err) {
+    console.warn(`Could not load ${folder}`, err);
+    return null;
+  }
+}
+
+(async function init() {
+  const overlays = {};
+  for (const f of tileFolders) {
+    const result = await loadVectorLayer(f);
+    if (result) {
+      const [name, layer] = result;
+      overlays[name] = layer;
+      if (name.startsWith("WV_")) layer.addTo(map);
+    }
+  }
+
+  L.control.layers({ "Satellite + Labels": hybrid, "OpenStreetMap": osm }, overlays, { collapsed:false }).addTo(map);
+})();
+</script>
+</body>
+</html>
