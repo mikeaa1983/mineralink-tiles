@@ -34,13 +34,7 @@ jobs:
           echo "✅ Tile folders created:"
           find tiles -maxdepth 2 -type d | head -40
 
-      - name: Archive tiles
-        run: |
-          echo "📦 Creating archive..."
-          tar -czf /tmp/tiles.tar.gz tiles
-          ls -lh /tmp/tiles.tar.gz
-
-      - name: Save site files before switching branch
+      - name: Save site files
         run: |
           echo "💾 Saving index.html and .nojekyll..."
           mkdir -p /tmp/site
@@ -53,7 +47,6 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
-          # Switch to gh-pages (create if missing)
           if git show-ref --verify --quiet refs/heads/gh-pages; then
             git checkout gh-pages
           else
@@ -63,10 +56,10 @@ jobs:
           # Clear old files
           rm -rf *
 
-          # Extract new tiles
-          tar -xzf /tmp/tiles.tar.gz
+          # ✅ Copy tile contents (not the folder itself)
+          cp -r tiles/* ./
 
-          # Restore site files
+          # Restore index.html and .nojekyll
           cp /tmp/site/index.html ./index.html || echo "⚠️ Missing index.html"
           cp /tmp/site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
 
