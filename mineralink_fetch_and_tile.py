@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-import os, json, requests, subprocess, shutil
+import os, json, requests, subprocess, shutil, time
 import geopandas as gpd
+from shapely.geometry import Point, Polygon, LineString
 
 # ============================================================
 # CONFIGURATION
@@ -69,10 +70,10 @@ DATASETS = [
 ]
 
 # ============================================================
-# FETCH + CONVERT FUNCTIONS
+# FETCH FUNCTION
 # ============================================================
 def fetch_geojson(dataset):
-    """Fetch dataset in 5x5 chunks to avoid ArcGIS timeouts."""
+    """Fetch dataset in 5x5 chunks and convert ESRI geometry → GeoJSON."""
     name, url = dataset["name"], dataset["url"]
     print(f"\n=== Fetching {name} ===")
 
@@ -84,13 +85,13 @@ def fetch_geojson(dataset):
     xmin, ymin, xmax, ymax = bbox
     x_step = (xmax - xmin) / 5
     y_step = (ymax - ymin) / 5
-
     all_features = []
+
     for i in range(5):
         for j in range(5):
             x0, y0 = xmin + i * x_step, ymin + j * y_step
             x1, y1 = x0 + x_step, y0 + y_step
-            print(f"  ▸ Chunk {i+1}, {j+1} bbox=({x0:.2f},{y0:.2f},{x1:.2f},{y1:.2f})")
+            print(f"  ▸ Chunk {i+1},{j+1} bbox=({x0:.2f},{y0:.2f},{x1:.2f},{y1:.2f})")
 
             params = {
                 "where": "1=1",
@@ -104,35 +105,49 @@ def fetch_geojson(dataset):
                 "outSR": "4326",
             }
 
-            try:
-                resp = requests.get(url, params=params, timeout=60)
-                resp.raise_for_status()
-                data = resp.json()
-                feats = data.get("features", [])
-                if feats:
-                    all_features.extend(feats)
-                    print(f"    + {len(feats)} features")
-            except Exception as e:
-                print(f"⚠️ Chunk {i+1},{j+1} failed: {e}")
+            for attempt in range(3):
+                try:
+                    resp = requests.get(url, params=params, timeout=60)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    feats = data.get("features", [])
+                    if feats:
+                        all_features.extend(feats)
+                        print(f"    + {len(feats)} features")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Chunk {i+1},{j+1} attempt {attempt+1} failed: {e}")
+                    time.sleep(2)
+                    continue
 
     if not all_features:
         print(f"⚠️ No geometries found in {name}")
         return None
 
-    # Convert ESRI → GeoJSON
+    # Convert ESRI geometries → GeoJSON
     features = []
     for feat in all_features:
         geom = feat.get("geometry")
         props = feat.get("attributes", {})
-        if geom:
-            try:
-                gdf = gpd.GeoDataFrame.from_features(
-                    [{"geometry": geom, "properties": props}], crs="EPSG:4326"
-                )
-                geojson = json.loads(gdf.to_json())
-                features.append(geojson["features"][0])
-            except Exception:
-                pass
+        if not geom:
+            continue
+        try:
+            if "x" in geom and "y" in geom:
+                geometry = Point(geom["x"], geom["y"])
+            elif "points" in geom:
+                geometry = LineString(geom["points"])
+            elif "paths" in geom:
+                geometry = LineString(geom["paths"][0])
+            elif "rings" in geom:
+                geometry = Polygon(geom["rings"][0])
+            else:
+                continue
+
+            gdf = gpd.GeoDataFrame([props], geometry=[geometry], crs="EPSG:4326")
+            geojson = json.loads(gdf.to_json())
+            features.append(geojson["features"][0])
+        except Exception as e:
+            print(f"⚠️ Geometry parse error: {e}")
 
     if not features:
         print(f"⚠️ {name} contained no valid geometries.")
