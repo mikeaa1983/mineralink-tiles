@@ -3,7 +3,7 @@ name: Daily Build and Deploy Tiles
 on:
   schedule:
     - cron: "0 2 * * *"  # Run daily at 2 AM UTC
-  workflow_dispatch:       # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   build-and-publish:
@@ -30,9 +30,9 @@ jobs:
       - name: Build vector tiles
         run: |
           echo "🏗️ Building tiles..."
-          python3 mineralink_fetch_and_tile.py
-          echo "✅ Tile folders created:"
-          find tiles -maxdepth 2 -type d | head -40
+          python3 mineralink_fetch_and_tile.py || { echo "❌ Python build failed"; exit 1; }
+          echo "✅ Checking tile output structure:"
+          ls -R | head -60
 
       - name: Save site files
         run: |
@@ -53,13 +53,18 @@ jobs:
             git checkout --orphan gh-pages
           fi
 
-          # Clear old files
           rm -rf *
 
-          # ✅ Copy tile contents (not the folder itself)
-          cp -r tiles/* ./
+          echo "📁 Checking tiles directory before copy..."
+          if [ -d "tiles" ]; then
+            echo "✅ Found tiles directory, copying contents..."
+            cp -r tiles/* ./
+          else
+            echo "❌ ERROR: 'tiles' directory not found after build!"
+            ls -R | head -60
+            exit 1
+          fi
 
-          # Restore index.html and .nojekyll
           cp /tmp/site/index.html ./index.html || echo "⚠️ Missing index.html"
           cp /tmp/site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
 
