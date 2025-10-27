@@ -3,17 +3,11 @@ import os, json, requests, subprocess, shutil, time
 import geopandas as gpd
 from shapely.geometry import Point, Polygon, LineString
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
 OUT_TILES_DIR = "tiles"
 TIPPECANOE_CMD = "tippecanoe"
 TIPPECANOE_MINZOOM = 4
 TIPPECANOE_MAXZOOM = 14
 
-# ============================================================
-# DATASETS (Wells + Parcels by State)
-# ============================================================
 DATASETS = [
     # --- WEST VIRGINIA ---
     {
@@ -30,12 +24,12 @@ DATASETS = [
     # --- OHIO ---
     {
         "name": "OH_wells",
-        "url": "https://gis.ohiodnr.gov/arcgis/rest/services/DOG_Services/MapServer/0/query",
+        "url": "https://gis.ohiodnr.gov/arcgis/rest/services/DOGRM/MapServer/3/query",
         "chunk_bbox": [-84.8, 38.3, -80.5, 42.0],
     },
     {
         "name": "OH_parcels",
-        "url": "https://gis1.oit.ohio.gov/arcgis/rest/services/Statewide/Parcels/MapServer/0/query",
+        "url": "https://geo.oit.ohio.gov/arcgis/rest/services/Statewide/Parcels/MapServer/0/query",
         "chunk_bbox": [-84.8, 38.3, -80.5, 42.0],
     },
 
@@ -50,18 +44,8 @@ DATASETS = [
         "url": "https://gis.dep.pa.gov/depgisprd/rest/services/OilGas/OG_Laterals/MapServer/0/query",
         "chunk_bbox": [-80.6, 39.7, -74.5, 42.5],
     },
-    {
-        "name": "PA_parcels",
-        "url": "https://gis.dep.pa.gov/depgisprd/rest/services/Boundaries/County_Boundaries/MapServer/0/query",
-        "chunk_bbox": [-80.6, 39.7, -74.5, 42.5],
-    },
 
     # --- TEXAS ---
-    {
-        "name": "TX_wells",
-        "url": "https://rrc-txdigital.maps.arcgis.com/sharing/rest/content/items/5a28b3085edb47bfa8f35e6d8a3124b8/data",
-        "chunk_bbox": [-106.7, 25.7, -93.5, 36.6],
-    },
     {
         "name": "TX_parcels",
         "url": "https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap25_land_parcels_48/MapServer/0/query",
@@ -69,9 +53,6 @@ DATASETS = [
     },
 ]
 
-# ============================================================
-# FETCH FUNCTION
-# ============================================================
 def fetch_geojson(dataset):
     """Fetch dataset in 5x5 chunks and convert ESRI geometry → GeoJSON."""
     name, url = dataset["name"], dataset["url"]
@@ -101,14 +82,18 @@ def fetch_geojson(dataset):
                 "spatialRel": "esriSpatialRelIntersects",
                 "outFields": "*",
                 "returnGeometry": "true",
+                "returnExceededLimitFeatures": "true",
                 "f": "json",
                 "outSR": "4326",
             }
 
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
-                    resp = requests.get(url, params=params, timeout=60)
-                    resp.raise_for_status()
+                    resp = requests.get(url, params=params, timeout=120)
+                    if resp.status_code == 404:
+                        raise Exception("404 Not Found")
+                    if resp.status_code >= 500:
+                        raise Exception("Server error")
                     data = resp.json()
                     feats = data.get("features", [])
                     if feats:
@@ -117,14 +102,13 @@ def fetch_geojson(dataset):
                     break
                 except Exception as e:
                     print(f"⚠️ Chunk {i+1},{j+1} attempt {attempt+1} failed: {e}")
-                    time.sleep(2)
+                    time.sleep(3)
                     continue
 
     if not all_features:
         print(f"⚠️ No geometries found in {name}")
         return None
 
-    # Convert ESRI geometries → GeoJSON
     features = []
     for feat in all_features:
         geom = feat.get("geometry")
@@ -160,9 +144,6 @@ def fetch_geojson(dataset):
     print(f"✅ Saved {file_name} ({len(features)} features)")
     return file_name
 
-# ============================================================
-# TILE BUILDER
-# ============================================================
 def build_tiles(name, geojson_file):
     """Run Tippecanoe to create vector tiles."""
     if not geojson_file or not os.path.exists(geojson_file):
@@ -196,9 +177,6 @@ def build_tiles(name, geojson_file):
         print(f"⚠️ Tippecanoe failed for {name}: {e}")
         return False
 
-# ============================================================
-# MAIN
-# ============================================================
 def main():
     print("=== Starting Mineralink Tile Builder ===")
     os.makedirs(OUT_TILES_DIR, exist_ok=True)
@@ -217,7 +195,7 @@ def main():
         for layer in built_layers:
             print(f"   • {layer}")
     else:
-        print("\n❌ No tiles were built — check dataset endpoints or network.")
+        print("\n⚠️ No tiles were built — all endpoints failed or returned empty data.")
 
     print(f"\nTiles directory: {os.path.abspath(OUT_TILES_DIR)}")
 
