@@ -8,11 +8,9 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: 🧭 Checkout repository
+      - name: 🧾 Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -20,57 +18,73 @@ jobs:
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.x"
 
       - name: ⚙️ Install system + Python dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y tippecanoe gdal-bin
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || pip install geopandas shapely requests fiona pyproj pandas
+          pip install -r requirements.txt
 
       - name: 🏗️ Run tile builder
         run: |
-          echo "Starting tile generation..."
-          python3 mineralink_fetch_and_tile.py || { echo "❌ Python build failed"; exit 1; }
-          echo "✅ Tile build complete"
-          ls -R tiles | head -60 || echo "⚠️ No tiles generated"
+          echo "🏗️ Running MineraLink tile build..."
+          python3 mineralink_fetch_and_tile.py || { echo "❌ Tile build failed"; exit 1; }
+          echo "✅ Build complete. Listing generated files:"
+          ls -R | head -60
 
-      - name: 💾 Preserve site files temporarily
+      - name: 💾 Preserve site temporarily
         run: |
+          echo "💾 Preserving index.html and .nojekyll for deployment..."
           mkdir -p /tmp/site
-          cp index.html /tmp/site/index.html || echo "⚠️ index.html missing"
-          cp .nojekyll /tmp/site/.nojekyll || echo "⚠️ .nojekyll missing"
+          cp index.html /tmp/site/index.html || echo "⚠️ No index.html found"
+          cp .nojekyll /tmp/site/.nojekyll || echo "⚠️ No .nojekyll found"
 
       - name: 🚀 Deploy to gh-pages branch
         run: |
-          echo "Deploying to gh-pages..."
+          echo "🚀 Deploying build to gh-pages branch..."
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
-          # Create a safe working copy before switching branches
-          mkdir -p /tmp/tiles
-          cp -r tiles/* /tmp/tiles/ || echo "⚠️ No tiles to copy"
+          # Switch to gh-pages branch (create if missing)
+          if git show-ref --verify --quiet refs/heads/gh-pages; then
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+          fi
 
-          git fetch origin gh-pages || true
-          git checkout gh-pages || git checkout --orphan gh-pages
+          # Clean current branch contents
+          rm -rf *
 
-          # Clean only tracked files to avoid issues
-          git rm -rf . || true
-          rm -rf ./* || true
+          echo "📁 Copying generated content..."
+          mkdir -p ./fallback_data
 
-          cp -r /tmp/tiles/* ./ || echo "⚠️ No tiles copied"
+          # Copy vector tiles
+          if [ -d "tiles" ]; then
+            echo "✅ Found tiles directory, copying..."
+            cp -r tiles/* ./
+          else
+            echo "❌ ERROR: 'tiles' directory not found after build!"
+            ls -R | head -40
+            exit 1
+          fi
+
+          # Copy fallback data and site files
+          cp -r fallback_data/* ./fallback_data/ || echo "⚠️ No fallback_data found"
           cp /tmp/site/index.html ./index.html || echo "⚠️ Missing index.html"
           cp /tmp/site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
 
-          echo "📂 Contents for deployment:"
-          ls -R | head -60
+          echo "📂 Files now staged for gh-pages:"
+          find . -maxdepth 2 | head -50
 
           git add .
-          git commit -m "Auto-update tiles + site $(date -u '+%Y-%m-%d %H:%M UTC')" || echo "No changes"
+          git commit -m "Auto-update tiles + site $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
           git push origin gh-pages --force
+
+          echo "🌐 Deployment complete! Your site should now update."
 
       - name: ✅ Confirm deployment
         run: |
-          echo "🌐 Deployment successful!"
-          echo "Visit: https://mikeaa1983.github.io/mineralink-tiles/"
+          echo "🌎 Site successfully deployed!"
+          echo "🔗 Visit: https://mikeaa1983.github.io/mineralink-tiles/"
