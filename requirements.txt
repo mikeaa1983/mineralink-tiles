@@ -1,6 +1,12 @@
-requests
-shapely
-pyproj
-fiona
-pandas
-geopandas
+# Core HTTP & data utilities
+requests>=2.31.0
+pandas>=2.1.0
+
+# Geospatial stack (compatible versions)
+shapely>=2.0.3
+pyproj>=3.6.0
+fiona>=1.9.6
+geopandas>=0.14.0
+
+# Optional: logging/CLI utilities (safe to include)
+tqdm>=4.66.1
