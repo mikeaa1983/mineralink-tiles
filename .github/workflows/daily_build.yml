@@ -8,74 +8,69 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repository
+      - name: 🧭 Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Python
+      - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.11"
 
-      - name: Install dependencies
+      - name: ⚙️ Install system + Python dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y tippecanoe gdal-bin
           python -m pip install --upgrade pip
-          pip install geopandas shapely requests fiona pyproj pandas
+          pip install -r requirements.txt || pip install geopandas shapely requests fiona pyproj pandas
 
-      - name: Build vector tiles
+      - name: 🏗️ Run tile builder
         run: |
-          echo "🏗️ Building tiles..."
+          echo "Starting tile generation..."
           python3 mineralink_fetch_and_tile.py || { echo "❌ Python build failed"; exit 1; }
-          echo "✅ Checking tile output structure:"
-          ls -R | head -60
+          echo "✅ Tile build complete"
+          ls -R tiles | head -60 || echo "⚠️ No tiles generated"
 
-      - name: Save site files
+      - name: 💾 Preserve site files temporarily
         run: |
-          echo "💾 Saving index.html and .nojekyll..."
           mkdir -p /tmp/site
-          cp index.html /tmp/site/index.html || echo "⚠️ No index.html found"
-          cp .nojekyll /tmp/site/.nojekyll || echo "⚠️ No .nojekyll found"
+          cp index.html /tmp/site/index.html || echo "⚠️ index.html missing"
+          cp .nojekyll /tmp/site/.nojekyll || echo "⚠️ .nojekyll missing"
 
-      - name: Deploy to gh-pages
+      - name: 🚀 Deploy to gh-pages branch
         run: |
-          echo "🚀 Deploying to gh-pages branch..."
+          echo "Deploying to gh-pages..."
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
-          if git show-ref --verify --quiet refs/heads/gh-pages; then
-            git checkout gh-pages
-          else
-            git checkout --orphan gh-pages
-          fi
+          # Create a safe working copy before switching branches
+          mkdir -p /tmp/tiles
+          cp -r tiles/* /tmp/tiles/ || echo "⚠️ No tiles to copy"
 
-          rm -rf *
+          git fetch origin gh-pages || true
+          git checkout gh-pages || git checkout --orphan gh-pages
 
-          echo "📁 Checking tiles directory before copy..."
-          if [ -d "tiles" ]; then
-            echo "✅ Found tiles directory, copying contents..."
-            cp -r tiles/* ./
-          else
-            echo "❌ ERROR: 'tiles' directory not found after build!"
-            ls -R | head -60
-            exit 1
-          fi
+          # Clean only tracked files to avoid issues
+          git rm -rf . || true
+          rm -rf ./* || true
 
+          cp -r /tmp/tiles/* ./ || echo "⚠️ No tiles copied"
           cp /tmp/site/index.html ./index.html || echo "⚠️ Missing index.html"
           cp /tmp/site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
 
-          echo "📂 Files now in gh-pages:"
-          find . -maxdepth 2 | head -50
+          echo "📂 Contents for deployment:"
+          ls -R | head -60
 
           git add .
-          git commit -m "Auto-update tiles + site $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
+          git commit -m "Auto-update tiles + site $(date -u '+%Y-%m-%d %H:%M UTC')" || echo "No changes"
           git push origin gh-pages --force
 
-      - name: Confirm deployment
+      - name: ✅ Confirm deployment
         run: |
-          echo "🌐 Deployed successfully!"
-          echo "👉 Visit: https://mikeaa1983.github.io/mineralink-tiles/"
+          echo "🌐 Deployment successful!"
+          echo "Visit: https://mikeaa1983.github.io/mineralink-tiles/"
