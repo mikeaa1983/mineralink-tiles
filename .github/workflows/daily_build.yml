@@ -2,12 +2,14 @@ name: Daily Build and Deploy Tiles
 
 on:
   schedule:
-    - cron: "0 2 * * *"  # Run daily at 2 AM UTC
+    - cron: "0 2 * * *"     # runs daily at 2 AM UTC
   workflow_dispatch:
 
 jobs:
-  build-and-publish:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      tiles-path: ${{ steps.export.outputs.tiles-path }}
 
     steps:
       - name: 🧾 Checkout repository
@@ -20,63 +22,75 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: ⚙️ Install system + Python dependencies
+      - name: ⚙️ Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y tippecanoe gdal-bin
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🏗️ Run tile builder
+      - name: 🏗️ Build tiles
         run: |
-          echo "🏗️ Running MineraLink tile build..."
-          python3 mineralink_fetch_and_tile.py || { echo "❌ Tile build failed"; exit 1; }
-          echo "✅ Build complete. Listing generated files:"
+          echo "🏗️ Running tile builder..."
+          python3 mineralink_fetch_and_tile.py
+          echo "✅ Build complete. Directory structure:"
           ls -R | head -60
 
-      - name: 💾 Preserve build outputs
-        run: |
-          echo "💾 Preserving build outputs before branch switch..."
-          mkdir -p /tmp/tiles /tmp/fallback_data /tmp/site
-          cp -r tiles/* /tmp/tiles/ 2>/dev/null || echo "⚠️ No tiles to copy"
-          cp -r fallback_data/* /tmp/fallback_data/ 2>/dev/null || echo "⚠️ No fallback data"
-          cp index.html /tmp/site/index.html || echo "⚠️ No index.html found"
-          cp .nojekyll /tmp/site/.nojekyll || echo "⚠️ No .nojekyll found"
+      - name: 💾 Save build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-build
+          path: |
+            tiles/**
+            fallback_data/**
+            index.html
+            .nojekyll
+          if-no-files-found: warn
 
-      - name: 🚀 Deploy to gh-pages branch
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 💾 Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: site-build
+          path: ./site
+
+      - name: 🚀 Deploy to gh-pages
         run: |
-          echo "🚀 Deploying build to gh-pages branch..."
+          echo "🚀 Preparing deployment..."
+
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
-          # Switch to gh-pages branch (create if missing)
+          # Ensure we’re on or create gh-pages
           if git show-ref --verify --quiet refs/heads/gh-pages; then
             git checkout gh-pages
           else
             git checkout --orphan gh-pages
           fi
 
-          # Clean current branch contents
           rm -rf *
-
-          echo "📁 Restoring generated content..."
           mkdir -p tiles fallback_data
 
-          cp -r /tmp/tiles/* ./ 2>/dev/null || echo "⚠️ No tiles found in /tmp"
-          cp -r /tmp/fallback_data/* ./fallback_data/ 2>/dev/null || echo "⚠️ No fallback data found"
-          cp /tmp/site/index.html ./index.html || echo "⚠️ Missing index.html"
-          cp /tmp/site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
+          # Copy built files
+          cp -r site/tiles/* ./tiles/ 2>/dev/null || echo "⚠️ No tiles found"
+          cp -r site/fallback_data/* ./fallback_data/ 2>/dev/null || echo "⚠️ No fallback_data found"
+          cp site/index.html ./index.html || echo "⚠️ Missing index.html"
+          cp site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
 
-          echo "📂 Files staged for deployment:"
-          find . -maxdepth 2 | head -60
+          echo "📂 Final gh-pages contents:"
+          find . -maxdepth 3 | head -80
 
           git add .
-          git commit -m "Auto-update tiles + site $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
+          git commit -m "Auto-deploy $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "No changes to commit"
           git push origin gh-pages --force
 
-          echo "🌐 Deployment complete! Your site should now update."
-
-      - name: ✅ Confirm deployment
-        run: |
-          echo "🌎 Site successfully deployed!"
-          echo "🔗 Visit: https://mikeaa1983.github.io/mineralink-tiles/"
+          echo "✅ Deployment complete."
