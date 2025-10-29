@@ -1,15 +1,13 @@
 name: Daily Build and Deploy Tiles
 
 on:
-  schedule:
-    - cron: "0 2 * * *"     # runs daily at 2 AM UTC
   workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *" # every day at 2 AM UTC
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      tiles-path: ${{ steps.export.outputs.tiles-path }}
 
     steps:
       - name: 🧾 Checkout repository
@@ -29,21 +27,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🏗️ Build tiles
+      - name: 🏗️ Run tile builder
         run: |
-          echo "🏗️ Running tile builder..."
+          echo "🏗️ Running mineralink_fetch_and_tile.py"
           python3 mineralink_fetch_and_tile.py
-          echo "✅ Build complete. Directory structure:"
-          ls -R | head -60
+          echo "✅ Build complete. Directory contents:"
+          ls -R | head -80
 
       - name: 💾 Save build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: site-build
+          name: site
           path: |
+            index.html
             tiles/**
             fallback_data/**
-            index.html
             .nojekyll
           if-no-files-found: warn
 
@@ -60,37 +58,35 @@ jobs:
       - name: 💾 Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: site-build
+          name: site
           path: ./site
 
       - name: 🚀 Deploy to gh-pages
         run: |
           echo "🚀 Preparing deployment..."
-
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
-          # Ensure we’re on or create gh-pages
+          # Switch to or create gh-pages branch
           if git show-ref --verify --quiet refs/heads/gh-pages; then
             git checkout gh-pages
           else
             git checkout --orphan gh-pages
           fi
 
+          # Clear branch and copy new site
           rm -rf *
           mkdir -p tiles fallback_data
-
-          # Copy built files
-          cp -r site/tiles/* ./tiles/ 2>/dev/null || echo "⚠️ No tiles found"
-          cp -r site/fallback_data/* ./fallback_data/ 2>/dev/null || echo "⚠️ No fallback_data found"
+          cp -r site/tiles/* ./tiles/ 2>/dev/null || echo "⚠️ No tiles folder"
+          cp -r site/fallback_data/* ./fallback_data/ 2>/dev/null || echo "⚠️ No fallback data"
           cp site/index.html ./index.html || echo "⚠️ Missing index.html"
           cp site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
 
-          echo "📂 Final gh-pages contents:"
+          echo "📁 Files ready for commit:"
           find . -maxdepth 3 | head -80
 
           git add .
-          git commit -m "Auto-deploy $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "No changes to commit"
+          git commit -m "Auto-deploy $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "No changes"
           git push origin gh-pages --force
 
-          echo "✅ Deployment complete."
+          echo "✅ Deployment finished successfully."
