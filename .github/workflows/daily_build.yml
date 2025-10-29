@@ -34,10 +34,12 @@ jobs:
           echo "✅ Build complete. Listing generated files:"
           ls -R | head -60
 
-      - name: 💾 Preserve site temporarily
+      - name: 💾 Preserve build outputs
         run: |
-          echo "💾 Preserving index.html and .nojekyll for deployment..."
-          mkdir -p /tmp/site
+          echo "💾 Preserving build outputs before branch switch..."
+          mkdir -p /tmp/tiles /tmp/fallback_data /tmp/site
+          cp -r tiles/* /tmp/tiles/ 2>/dev/null || echo "⚠️ No tiles to copy"
+          cp -r fallback_data/* /tmp/fallback_data/ 2>/dev/null || echo "⚠️ No fallback data"
           cp index.html /tmp/site/index.html || echo "⚠️ No index.html found"
           cp .nojekyll /tmp/site/.nojekyll || echo "⚠️ No .nojekyll found"
 
@@ -57,26 +59,16 @@ jobs:
           # Clean current branch contents
           rm -rf *
 
-          echo "📁 Copying generated content..."
-          mkdir -p ./fallback_data
+          echo "📁 Restoring generated content..."
+          mkdir -p tiles fallback_data
 
-          # Copy vector tiles
-          if [ -d "tiles" ]; then
-            echo "✅ Found tiles directory, copying..."
-            cp -r tiles/* ./
-          else
-            echo "❌ ERROR: 'tiles' directory not found after build!"
-            ls -R | head -40
-            exit 1
-          fi
-
-          # Copy fallback data and site files
-          cp -r fallback_data/* ./fallback_data/ || echo "⚠️ No fallback_data found"
+          cp -r /tmp/tiles/* ./ 2>/dev/null || echo "⚠️ No tiles found in /tmp"
+          cp -r /tmp/fallback_data/* ./fallback_data/ 2>/dev/null || echo "⚠️ No fallback data found"
           cp /tmp/site/index.html ./index.html || echo "⚠️ Missing index.html"
           cp /tmp/site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
 
-          echo "📂 Files now staged for gh-pages:"
-          find . -maxdepth 2 | head -50
+          echo "📂 Files staged for deployment:"
+          find . -maxdepth 2 | head -60
 
           git add .
           git commit -m "Auto-update tiles + site $(date -u +"%Y-%m-%d %H:%M UTC")" || echo "No changes"
