@@ -55,11 +55,11 @@ const map = L.map("map", { center: [39, -80], zoom: 7, layers: [hybrid] });
 const WV_BOUNDS = [[37.046230, -82.362192], [40.501588, -79.234826]];
 map.fitBounds(WV_BOUNDS);
 
-// --- Datasets to load ---
+// --- Data sets ---
 const tileFolders = ["WV_wells"];
 const colors = { WV_wells: "#ff6600" };
 
-// --- Build popup ---
+// --- Popup builder ---
 function buildPopupHTML(folder, props) {
   let html = `<b>${folder}</b><table class='popup-table'>`;
   for (const [k,v] of Object.entries(props)) html += `<tr><td>${k}</td><td>${v}</td></tr>`;
@@ -67,34 +67,18 @@ function buildPopupHTML(folder, props) {
   return html;
 }
 
-// --- Try to load a folder (tiles or fallback) ---
+// --- Load layer (tiles or fallback) ---
 async function loadLayer(folder) {
   const color = colors[folder] || "#3388ff";
+  const tilePath = `tiles/${folder}/metadata.json`;
+  const tileURL = `https://mikeaa1983.github.io/mineralink-tiles/tiles/${folder}/{z}/{x}/{y}.pbf`;
 
-  // Try both possible tile paths
-  const paths = [
-    `${folder}/metadata.json`,
-    `tiles/${folder}/metadata.json`
-  ];
-
-  let meta = null, urlPrefix = null;
-  for (const path of paths) {
-    try {
-      const res = await fetch(path);
-      if (res.ok) {
-        meta = await res.json();
-        urlPrefix = path.replace("/metadata.json", "");
-        break;
-      }
-    } catch {}
-  }
-
-  // If vector tiles exist
-  if (meta && meta.vector_layers?.[0]) {
-    const id = meta.vector_layers[0].id;
-    const layer = L.vectorGrid.protobuf(
-      `${urlPrefix}/{z}/{x}/{y}.pbf`,
-      {
+  try {
+    const res = await fetch(tilePath);
+    if (res.ok) {
+      const meta = await res.json();
+      const id = meta.vector_layers[0].id;
+      const layer = L.vectorGrid.protobuf(tileURL, {
         vectorTileLayerStyles: {
           [id]: {
             radius: 3,
@@ -108,20 +92,23 @@ async function loadLayer(folder) {
         interactive: true,
         maxNativeZoom: 14,
         maxZoom: 19
-      }
-    );
-    layer.on("click", e => {
-      const props = e.layer.properties || {};
-      L.popup().setLatLng(e.latlng).setContent(buildPopupHTML(folder, props)).openOn(map);
-    });
-    console.log(`✅ Loaded vector tiles for ${folder}`);
-    showToast(`Loaded tiles: ${folder}`);
-    return [folder, layer];
+      });
+      layer.on("click", e => {
+        const props = e.layer.properties || {};
+        L.popup().setLatLng(e.latlng).setContent(buildPopupHTML(folder, props)).openOn(map);
+      });
+      console.log(`✅ Loaded vector tiles for ${folder}`);
+      showToast(`✅ Loaded tiles for ${folder}`);
+      return [folder, layer];
+    }
+  } catch (err) {
+    console.warn(`⚠️ Tile load failed for ${folder}`, err);
   }
 
-  // Else try fallback GeoJSON
+  // Try fallback
   try {
-    const fallbackRes = await fetch(`fallback_data/${folder}.geojson`);
+    const fallbackPath = `fallback_data/${folder}.geojson`;
+    const fallbackRes = await fetch(fallbackPath);
     if (fallbackRes.ok) {
       const data = await fallbackRes.json();
       const layer = L.geoJSON(data, {
@@ -133,10 +120,12 @@ async function loadLayer(folder) {
         })
       }).bindPopup(l => buildPopupHTML(folder, l.feature.properties));
       console.log(`🧩 Using fallback for ${folder}`);
-      showToast(`Using fallback: ${folder}`);
+      showToast(`🧩 Using fallback for ${folder}`);
       return [folder, layer];
     }
-  } catch {}
+  } catch (err) {
+    console.warn(`⚠️ Fallback load failed for ${folder}`, err);
+  }
 
   console.warn(`⚠️ No data for ${folder}`);
   showToast(`⚠️ No data for ${folder}`);
