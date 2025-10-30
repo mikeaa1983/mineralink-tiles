@@ -1,0 +1,17 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sample WV Well",
+        "operator": "Test Operator",
+        "status": "Producing"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-81.5, 38.9]
+      }
+    }
+  ]
+}
