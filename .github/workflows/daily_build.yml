@@ -1,0 +1,108 @@
+name: Daily Build and Deploy Tiles
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *" # every day at 2 AM UTC
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ github.run_id }}
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: ⚙️ Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tippecanoe gdal-bin
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 🏗️ Run tile builder
+        run: |
+          echo "🏗️ Running mineralink_fetch_and_tile.py"
+          python3 mineralink_fetch_and_tile.py
+          echo "✅ Build complete. Directory contents:"
+          ls -R | head -80
+
+      - name: 📦 Package site for deployment
+        run: |
+          echo "📦 Packaging build output into site/"
+          mkdir -p site
+          cp index.html site/ || echo "⚠️ Missing index.html"
+          cp -r tiles site/ || echo "⚠️ No tiles directory"
+          cp -r fallback_data site/ || echo "⚠️ No fallback_data directory"
+          cp .nojekyll site/ || echo "⚠️ Missing .nojekyll"
+          ls -R site | head -80
+
+      - name: 💾 Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site
+          if-no-files-found: error
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 💾 Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: ./site
+
+      - name: 🗜️ Extract site artifact
+        run: |
+          echo "🗜️ Extracting artifact..."
+          if [ -f site.zip ]; then
+            unzip -o site.zip -d site/
+          fi
+          ls -R site | head -80
+
+      - name: 🚀 Deploy to gh-pages
+        run: |
+          echo "🚀 Preparing deployment..."
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+
+          # Switch to or create gh-pages branch
+          if git show-ref --verify --quiet refs/heads/gh-pages; then
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+          fi
+
+          # Clear branch and copy new site
+          rm -rf *
+          mkdir -p tiles fallback_data
+          cp -r site/tiles/* ./tiles/ 2>/dev/null || echo "⚠️ No tiles folder"
+          cp -r site/fallback_data/* ./fallback_data/ 2>/dev/null || echo "⚠️ No fallback data"
+          cp site/index.html ./index.html || echo "⚠️ Missing index.html"
+          cp site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
+
+          echo "📁 Files ready for commit:"
+          find . -maxdepth 3 | head -80
+
+          git add .
+          git commit -m "Auto-deploy $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "No changes"
+          git push origin gh-pages --force
+
+          echo "✅ Deployment finished successfully."
