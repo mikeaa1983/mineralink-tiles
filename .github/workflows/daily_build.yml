@@ -67,19 +67,26 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: site
-          path: ./site
+          path: ./artifact
 
-      - name: 🧩 Normalize site folder structure
+      - name: 🧩 Fix artifact folder nesting
         run: |
-          echo "🔍 Checking structure after download..."
-          ls -R site | head -40
-          # Move nested folder up if artifact unpacked as site/site/
-          if [ -d "site/site" ]; then
-            echo "📦 Flattening nested site folder..."
-            mv site/site/* site/
-            rm -rf site/site
+          echo "🔍 Inspecting downloaded artifact structure..."
+          ls -R artifact | head -40
+          # Case 1: artifact/site/ (most common)
+          if [ -d "artifact/site" ]; then
+            echo "📦 Flattening artifact/site/..."
+            mv artifact/site/* artifact/
+            rm -rf artifact/site
           fi
-          ls -R site | head -40
+          # Case 2: artifact/site/site/ (double nested)
+          if [ -d "artifact/site/site" ]; then
+            echo "📦 Flattening artifact/site/site/... "
+            mv artifact/site/site/* artifact/
+            rm -rf artifact/site
+          fi
+          echo "✅ Final structure:"
+          ls -R artifact | head -40
 
       - name: 🚀 Deploy to gh-pages
         run: |
@@ -94,20 +101,20 @@ jobs:
             git checkout --orphan gh-pages
           fi
 
-          # Clear branch and copy new site
+          # Clear branch and copy site contents
           rm -rf *
           mkdir -p tiles fallback_data
-          cp -r site/tiles/* ./tiles/ 2>/dev/null || echo "⚠️ No tiles folder"
-          cp -r site/fallback_data/* ./fallback_data/ 2>/dev/null || echo "⚠️ No fallback data"
-          cp site/index.html ./index.html || echo "⚠️ Missing index.html"
-          cp site/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
+          cp -r artifact/tiles/* ./tiles/ 2>/dev/null || echo "⚠️ No tiles folder"
+          cp -r artifact/fallback_data/* ./fallback_data/ 2>/dev/null || echo "⚠️ No fallback data"
+          cp artifact/index.html ./index.html || echo "⚠️ Missing index.html"
+          cp artifact/.nojekyll ./.nojekyll || echo "⚠️ Missing .nojekyll"
 
           echo "📁 Files ready for commit:"
           find . -maxdepth 3 | head -80
 
-          # Verification step — fail if site is empty
+          # Abort if site is incomplete
           if [ ! -f index.html ]; then
-            echo "❌ ERROR: index.html not found. Aborting deploy."
+            echo "❌ ERROR: index.html not found after flattening. Aborting deploy."
             exit 1
           fi
 
