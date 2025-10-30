@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ github.run_id }}
 
     steps:
       - name: 🧾 Checkout repository
@@ -18,7 +20,7 @@ jobs:
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.13"
 
       - name: ⚙️ Install dependencies
         run: |
@@ -34,16 +36,22 @@ jobs:
           echo "✅ Build complete. Directory contents:"
           ls -R | head -80
 
-      - name: 💾 Save build artifacts
+      - name: 📦 Package site for deployment
+        run: |
+          echo "📦 Packaging build output into site/"
+          mkdir -p site
+          cp index.html site/ || echo "⚠️ Missing index.html"
+          cp -r tiles site/ || echo "⚠️ No tiles directory"
+          cp -r fallback_data site/ || echo "⚠️ No fallback_data directory"
+          cp .nojekyll site/ || echo "⚠️ Missing .nojekyll"
+          ls -R site | head -80
+
+      - name: 💾 Upload site artifact
         uses: actions/upload-artifact@v4
         with:
           name: site
-          path: |
-            index.html
-            tiles/**
-            fallback_data/**
-            .nojekyll
-          if-no-files-found: warn
+          path: site
+          if-no-files-found: error
 
   deploy:
     runs-on: ubuntu-latest
@@ -55,11 +63,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 💾 Download build artifacts
+      - name: 💾 Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: site
           path: ./site
+
+      - name: 🗜️ Extract site artifact
+        run: |
+          echo "🗜️ Extracting artifact..."
+          if [ -f site.zip ]; then
+            unzip -o site.zip -d site/
+          fi
+          ls -R site | head -80
 
       - name: 🚀 Deploy to gh-pages
         run: |
