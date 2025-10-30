@@ -69,14 +69,6 @@ jobs:
           name: site
           path: ./site
 
-      - name: 🗜️ Extract site artifact
-        run: |
-          echo "🗜️ Extracting artifact..."
-          if [ -f site.zip ]; then
-            unzip -o site.zip -d site/
-          fi
-          ls -R site | head -80
-
       - name: 🚀 Deploy to gh-pages
         run: |
           echo "🚀 Preparing deployment..."
@@ -100,6 +92,12 @@ jobs:
 
           echo "📁 Files ready for commit:"
           find . -maxdepth 3 | head -80
+
+          # Verification step — fail if site is empty
+          if [ ! -f index.html ]; then
+            echo "❌ ERROR: index.html not found. Aborting deploy."
+            exit 1
+          fi
 
           git add .
           git commit -m "Auto-deploy $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "No changes"
