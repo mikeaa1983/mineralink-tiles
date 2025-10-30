@@ -69,6 +69,18 @@ jobs:
           name: site
           path: ./site
 
+      - name: 🧩 Normalize site folder structure
+        run: |
+          echo "🔍 Checking structure after download..."
+          ls -R site | head -40
+          # Move nested folder up if artifact unpacked as site/site/
+          if [ -d "site/site" ]; then
+            echo "📦 Flattening nested site folder..."
+            mv site/site/* site/
+            rm -rf site/site
+          fi
+          ls -R site | head -40
+
       - name: 🚀 Deploy to gh-pages
         run: |
           echo "🚀 Preparing deployment..."
